@@ -422,31 +422,45 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
     if (btn) setTimeout(() => setCustomReplyBtnLoading(btn, false), 1200);
   }
 
+  /* 语音 blob → objectURL 预取缓存：渲染时就绪，点击时同步播放（保住用户手势，手机不再静音） */
+  const voiceURLCache = new Map();
+  async function prefetchVoice(key) {
+    if (!key || voiceURLCache.has(key)) return;
+    try {
+      const blob = await getBlob(key);
+      if (blob && blob.size) voiceURLCache.set(key, URL.createObjectURL(blob));
+    } catch (e) { }
+  }
+  function playCachedVoice(key) {
+    const url = voiceURLCache.get(key);
+    if (!url) return false;
+    try {
+      const a = new Audio(url);
+      a.currentTime = 0;
+      const p = a.play();
+      if (p && p.catch) p.catch(() => {
+        /* 播放被拦或无声：提示媒体音量 */
+        toast('没声音？按手机音量+键调大「媒体音量」再点', 2600);
+      });
+      return true;
+    } catch (e) { return false; }
+  }
   function renderCustomChat(customId) {
     const c = getCustom(customId); if (!c) return;
     const list = document.getElementById('ccMessages');
     list.innerHTML = c.chats.map(m => renderCustomBubble(m, c)).join('');
     list.scrollTop = list.scrollHeight;
+    /* 渲染后立刻预取所有语音 blob，点开就能秒播 */
+    c.chats.forEach(m => { if (m.audio) prefetchVoice(m.audio); });
     // 语音播放绑定：我的语音播真实录音（无录音或播放失败才退回 TTS），对方语音走 TTS
     list.querySelectorAll('[data-voice]').forEach(el => {
-      el.onclick = async () => {
+      el.onclick = () => {
         const id = el.dataset.voice;
         const m = c.chats.find(x => x.id === id);
         if (!m) return;
         el.style.opacity = '0.55';
         setTimeout(() => { el.style.opacity = ''; }, 800);
-        if (m.from === 'me' && m.audio) {
-          try {
-            const blob = await getBlob(m.audio);
-            if (blob && blob.size) {
-              const url = URL.createObjectURL(blob);
-              const a = new Audio(url);
-              await a.play().catch(() => { throw new Error('play-blocked'); });
-              a.onended = () => URL.revokeObjectURL(url);
-              return;
-            }
-          } catch (e) { /* 落到 TTS */ }
-        }
+        if (m.from === 'me' && m.audio && playCachedVoice(m.audio)) return;
         speak(m.text, c.gender);
       };
     });
@@ -517,14 +531,26 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
     return voices.find(v => /女|female|xiaoxiao|xiaoyi/i.test(v.name)) || voices[0];
   }
   function speak(text, gender = 'female', onend) {
-    try {
-      speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'zh-CN'; u.rate = 1; u.pitch = gender === 'female' ? 1.15 : 0.9;
-      const v = pickVoice(gender); if (v) u.voice = v;
-      if (onend) u.onend = onend;
-      speechSynthesis.speak(u);
-    } catch (e) { /* 忽略 */ }
+    /* Android Chrome 已知 bug：cancel() 后立刻 speak() 新语句会被吞掉静默，必须错开一拍 */
+    try { speechSynthesis.cancel(); } catch (e) { }
+    setTimeout(() => {
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'zh-CN'; u.rate = 1; u.pitch = gender === 'female' ? 1.15 : 0.9; u.volume = 1;
+        const v = pickVoice(gender); if (v) u.voice = v;
+        if (onend) u.onend = onend;
+        u.onerror = e => {
+          /* 出声失败可见化：多数是系统媒体音量为 0 或 TTS 引擎缺失 */
+          if (!speak._errTip) {
+            speak._errTip = 1;
+            toast('设备没出声？① 按音量+键调大「媒体音量」 ② 系统设置里检查文字转语音(TTS)引擎', 4200);
+          }
+          if (onend) onend();
+        };
+        speechSynthesis.speak(u);
+        if (speechSynthesis.paused) { try { speechSynthesis.resume(); } catch (e) { } }
+      } catch (e) { if (onend) onend(); }
+    }, 80);
   }
   if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => { voiceCache = speechSynthesis.getVoices(); };
 
@@ -1176,6 +1202,18 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
   // 表单文件选择绑定（sheet 重绘后需重绑）
   const origOpen = openSheet;
   window.openSheet = (html) => { origOpen(html); setTimeout(bindForm, 0); };
+
+  // 全局音频解锁：手机浏览器要求用户手势后才能出声，任何一次触摸/点击都刷新解锁状态
+  // （覆盖语音消息播放、通话 TTS、录音回放三个发声路径）
+  ['touchstart', 'click'].forEach(ev => {
+    document.addEventListener(ev, () => {
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC && unlockAudio._ctx && unlockAudio._ctx.state === 'suspended') unlockAudio._ctx.resume();
+        if ('speechSynthesis' in window && speechSynthesis.paused) speechSynthesis.resume();
+      } catch (e) { }
+    }, { passive: true });
+  });
 
   // 录音按钮绑定（微信同款：按住说话、上滑取消、松手发送；手指滑出按钮也照常处理）
   document.addEventListener('DOMContentLoaded', () => {
