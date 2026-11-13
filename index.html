@@ -1,0 +1,307 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>VX 小手机 · AI 陪伴</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#07c160">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="VX小手机">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css?v=36">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" defer></script>
+</head>
+<body>
+<div class="phone" id="phone">
+
+  <div class="statusbar">
+    <span class="sb-time" id="sbTime"></span>
+    <span class="sb-title" id="sbTitle"></span>
+    <span class="sb-icons"></span>
+  </div>
+
+  <!-- ===== 锁屏 ===== -->
+  <div class="lockscreen" id="lockScreen" style="display:none">
+    <div class="lock-time" id="lockTime">9:41</div>
+    <div class="lock-date" id="lockDate">—</div>
+    <div class="lock-prompt" id="lockPrompt">输入密码</div>
+    <div class="lock-dots" id="lockDots"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="lock-error" id="lockError"></div>
+    <div class="lock-pad">
+      <button data-act="lock-key" data-k="1">1</button>
+      <button data-act="lock-key" data-k="2">2<small>ABC</small></button>
+      <button data-act="lock-key" data-k="3">3<small>DEF</small></button>
+      <button data-act="lock-key" data-k="4">4<small>GHI</small></button>
+      <button data-act="lock-key" data-k="5">5<small>JKL</small></button>
+      <button data-act="lock-key" data-k="6">6<small>MNO</small></button>
+      <button data-act="lock-key" data-k="7">7<small>PQRS</small></button>
+      <button data-act="lock-key" data-k="8">8<small>TUV</small></button>
+      <button data-act="lock-key" data-k="9">9<small>WXYZ</small></button>
+      <button class="lk-cancel" data-act="lock-key" data-k="cancel">取消</button>
+      <button data-act="lock-key" data-k="0">0</button>
+      <button class="lk-del" data-act="lock-key" data-k="del">⌫</button>
+    </div>
+    <div class="lock-hint">默认密码 12345 · 可在「我的 → 锁屏设置」修改</div>
+  </div>
+
+  <div class="app" id="app">
+
+    <!-- ===== 聊天 ===== -->
+    <section class="page active" id="page-chats">
+      <div class="nav-bar">
+        <span class="nav-title" style="flex:1;text-align:center">微信</span>
+        <button class="nav-btn" data-act="chats-add" title="发起聊天">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <div class="float-banner" id="floatBanner" data-act="banner-open">
+        <img id="fbAv" alt="">
+        <div class="fb-main">
+          <div class="fb-name" id="fbName">—</div>
+          <div class="fb-text" id="fbText">—</div>
+        </div>
+        <span class="fb-now">现在</span>
+      </div>
+      <div class="page-body" id="chatList"></div>
+    </section>
+
+    <!-- ===== 通讯录 ===== -->
+    <section class="page" id="page-contacts">
+      <div class="nav-bar"><span class="nav-title">通讯录</span></div>
+      <div class="page-body" id="contactsWrap"></div>
+    </section>
+
+    <!-- ===== 识别中心 ===== -->
+    <section class="page" id="page-rec">
+      <div class="nav-bar"><span class="nav-title">屏幕识别</span></div>
+      <div class="page-body" id="recWrap"></div>
+    </section>
+
+    <!-- ===== 朋友圈 ===== -->
+    <section class="page" id="page-moments">
+      <div class="nav-bar"><span class="nav-title">朋友圈</span></div>
+      <div class="page-body" id="momentsWrap"></div>
+    </section>
+
+    <!-- ===== 我的 ===== -->
+    <section class="page" id="page-me">
+      <div class="nav-bar"><span class="nav-title">我的</span></div>
+      <div class="page-body" id="meWrap"></div>
+    </section>
+
+    <!-- ===== 发朋友圈（微信风全屏） ===== -->
+    <section class="subpage" id="momComposer" style="display:none">
+      <div class="nav-bar solid">
+        <button class="nav-btn" data-act="mom-back">取消</button>
+        <div class="nav-center"><div class="nav-name">发朋友圈</div></div>
+        <button class="nav-btn mom-publish" data-act="submit-moment">发表</button>
+      </div>
+      <div class="page-body">
+        <textarea class="mom-text" id="nmText" rows="5" placeholder="这一刻的想法..." maxlength="2000"></textarea>
+        <div class="mom-img-grid" id="momImgGrid"></div>
+        <input type="file" id="momImgInput" accept="image/*" multiple hidden>
+      </div>
+    </section>
+
+    <!-- ===== 新的朋友（微信风全屏） ===== -->
+    <section class="subpage" id="freqPage" style="display:none">
+      <div class="nav-bar solid">
+        <button class="nav-btn" data-act="freq-back"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <div class="nav-center"><div class="nav-name">新的朋友</div></div>
+        <span style="width:34px"></span>
+      </div>
+      <div class="page-body" id="freqList"></div>
+    </section>
+
+    <!-- ===== 个人资料（微信风全屏页） ===== -->
+    <section class="subpage" id="profilePage" style="display:none">
+      <div class="nav-bar solid">
+        <button class="nav-btn" data-act="pf-back"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <div class="nav-center"><div class="nav-name">个人资料</div></div>
+        <button class="nav-btn pf-save" data-act="save-profile">保存</button>
+      </div>
+      <div class="page-body" id="profileBody"></div>
+    </section>
+
+    <!-- ===== 聊天房间 ===== -->
+    <section class="subpage" id="chatroom" style="display:none">
+      <div class="nav-bar solid">
+        <button class="nav-btn" data-act="cr-back"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <div class="nav-center"><div class="nav-name" id="crName">—</div></div>
+        <button class="nav-btn" data-act="chat-menu" title="聊天设置"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+      </div>
+      <div class="chat-scroll" id="crScroll"></div>
+      <div class="typing-bar" id="typingBar" style="display:none">
+        <img class="typing-avatar" id="typingAvatar" src="">
+        <div class="typing-dots"><i></i><i></i><i></i></div>
+      </div>
+      <div class="chat-input">
+        <button class="ci-voice" title="语音"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+        <div class="ci-input-wrap"><input type="text" id="msgInput" placeholder="发消息..." autocomplete="off"></div>
+        <button class="ci-emoji" data-act="cr-emoji" title="表情"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M8.5 14s1.2 1.8 3.5 1.8 3.5-1.8 3.5-1.8"/><circle cx="9" cy="9.6" r=".9" fill="currentColor" stroke="none"/><circle cx="15" cy="9.6" r=".9" fill="currentColor" stroke="none"/></svg></button>
+        <button class="ci-plus" data-act="cr-plus" title="更多"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg></button>
+      </div>
+    </section>
+
+    <!-- ===== 演示内容页（供共享本标签页时识别） ===== -->
+    <section class="subpage" id="demoPage" style="display:none">
+      <div class="nav-bar solid">
+        <button class="nav-btn" data-act="demo-back"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <div class="nav-center"><div class="nav-name">演示内容页</div><div class="nav-sub">共享此标签页即可被真实识别</div></div>
+        <span style="width:34px"></span>
+      </div>
+      <div class="page-body" id="demoFeed"></div>
+    </section>
+
+    <!-- ===== 定制聊天房间 ===== -->
+    <section class="subpage" id="customChat" style="display:none">
+      <div class="nav-bar solid">
+        <button class="nav-btn" data-act="close-custom"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <div class="nav-center"><div class="nav-name cc-name">—</div></div>
+        <button class="nav-btn" data-act="start-call" title="通话"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z"/></svg></button>
+        <button class="nav-btn" data-act="cc-chat-menu" title="聊天设置"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+      </div>
+      <div class="chat-scroll" id="ccMessages"></div>
+      <div class="typing-bar" id="ccTyping" style="display:none">
+        <img class="typing-avatar cc-avatar" src="">
+        <div class="typing-dots"><i></i><i></i><i></i></div>
+      </div>
+      <div class="chat-input">
+        <button class="ci-voice" id="ccRecordBtn"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+        <div class="ci-input-wrap"><input type="text" id="ccInput" placeholder="发消息..." autocomplete="off"></div>
+        <button class="ci-emoji" data-act="plus-emoji" title="表情"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M8.5 14s1.2 1.8 3.5 1.8 3.5-1.8 3.5-1.8"/><circle cx="9" cy="9.6" r=".9" fill="currentColor" stroke="none"/><circle cx="15" cy="9.6" r=".9" fill="currentColor" stroke="none"/></svg></button>
+        <button class="ci-plus" data-act="cc-plus" title="更多"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg></button>
+      </div>
+      <div class="plus-panel" id="ccPlusPanel" style="display:none">
+        <button data-act="plus-rp"><i>🧧</i><span>红包</span></button>
+        <button data-act="plus-album"><i>🖼</i><span>相册</span></button>
+        <button data-act="plus-camera"><i>📷</i><span>拍摄</span></button>
+        <button data-act="plus-call"><i>📞</i><span>语音通话</span></button>
+      </div>
+      <input type="file" id="ccImgInput" accept="image/*" hidden>
+    </section>
+
+    <!-- ===== FaceTime 通话全屏层 ===== -->
+    <div class="call-page" id="callPage" style="display:none">
+      <video class="call-video" autoplay loop muted playsinline></video>
+      <div class="call-overlay"></div>
+      <div class="call-top-bar">
+        <span class="call-status-pill call-status">正在呼叫…</span>
+      </div>
+      <img class="call-avatar" src="">
+      <div class="call-name">—</div>
+      <div class="call-num">—</div>
+      <div class="call-loc">—</div>
+      <div class="call-speaking"></div>
+      <div class="call-controls">
+        <button class="cc-btn" data-cact="mute"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>静音</span></button>
+        <button class="cc-btn" data-cact="speaker"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg><span>免提</span></button>
+        <button class="cc-btn hangup call-hangup" data-act="end-call"><svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z"/></svg><span>挂断</span></button>
+      </div>
+      <div class="call-input-bar">
+        <input type="text" id="callInput" placeholder="通话中也可以打字…">
+        <button data-act="call-send-text">发送</button>
+      </div>
+    </div>
+
+    <!-- ===== 拨号键盘 ===== -->
+    <section class="subpage dialer" id="dialerPage" style="display:none">
+      <div class="nav-bar solid">
+        <button class="nav-btn" data-act="dialer-back"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <div class="nav-center"><div class="nav-name">拨号键盘</div></div>
+        <span style="width:34px"></span>
+      </div>
+      <div class="dialer-body">
+        <div class="dialer-tabs" id="dialerTabs">
+          <button data-act="dial-line" data-v="0">主号</button>
+          <button data-act="dial-line" data-v="1">匿名号</button>
+        </div>
+        <div class="dialer-cur" id="dialerCur">当前通话号 —</div>
+        <div class="dialer-num" id="dialerNum"></div>
+        <div class="dialer-pad">
+          <button data-act="dial-key" data-k="1">1</button>
+          <button data-act="dial-key" data-k="2">2<small>ABC</small></button>
+          <button data-act="dial-key" data-k="3">3<small>DEF</small></button>
+          <button data-act="dial-key" data-k="4">4<small>GHI</small></button>
+          <button data-act="dial-key" data-k="5">5<small>JKL</small></button>
+          <button data-act="dial-key" data-k="6">6<small>MNO</small></button>
+          <button data-act="dial-key" data-k="7">7<small>PQRS</small></button>
+          <button data-act="dial-key" data-k="8">8<small>TUV</small></button>
+          <button data-act="dial-key" data-k="9">9<small>WXYZ</small></button>
+          <button class="dk-empty">∗</button>
+          <button data-act="dial-key" data-k="0">0<small>+</small></button>
+          <button class="dk-empty">#</button>
+        </div>
+        <div class="dialer-actions">
+          <span style="width:64px"></span>
+          <button class="dial-call" data-act="dial-call" title="拨打"><svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z"/></svg></button>
+          <button class="dial-del" data-act="dial-key" data-k="del">⌫</button>
+        </div>
+        <div class="dialer-fnbar">
+          <span>免提</span><span>静音</span><span>添加通话</span><span class="on">拨号键盘</span><span>FaceTime</span><span>通讯录</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 来电全屏层 ===== -->
+    <div class="incall-page" id="incallPage" style="display:none">
+      <div class="incall-label"><svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align:-2px"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z"/></svg> 来电</div>
+      <img class="incall-av" id="incAv" alt="">
+      <div class="incall-name" id="incName">—</div>
+      <div class="incall-num" id="incNum">—</div>
+      <div class="incall-loc" id="incLoc">—</div>
+      <div class="incall-btns">
+        <button class="inc-reject" data-act="inc-reject"><i><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z"/></svg></i><span>挂断</span></button>
+        <button class="inc-answer" data-act="inc-answer"><i><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z"/></svg></i><span>接听</span></button>
+      </div>
+    </div>
+
+    <!-- ===== 心动审判 ===== -->
+    <section class="trial-page" id="trialPage" style="display:none">
+      <div class="trial-top">
+        <button class="back" data-act="trial-close">‹ 大厅</button>
+        <span style="font-size:13px;color:#ffb3c8">心动审判</span>
+        <span style="width:40px"></span>
+      </div>
+      <div id="trialBody" style="flex:1;overflow-y:auto"></div>
+    </section>
+
+  </div>
+
+  <nav class="tabbar" id="tabbar">
+    <div class="tab active" data-page="chats">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 3C6.5 3 2 6.7 2 11.2c0 2.5 1.4 4.7 3.6 6.2V22l3.8-2.1c.8.2 1.7.3 2.6.3 5.5 0 10-3.7 10-8.2S17.5 3 12 3z"/></svg>
+      <span>聊天</span><i class="tab-badge" id="badge-chats" style="display:none">0</i>
+    </div>
+    <div class="tab" data-page="contacts">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm9 10v-1a6 6 0 0 0-6-6H6a6 6 0 0 0-6 6v1" transform="translate(3 0)"/><circle cx="17.5" cy="7" r="3.4"/><path d="M22 21v-1a5 5 0 0 0-4-4.9"/></svg>
+      <span>通讯录</span><i class="tab-badge" id="badge-contacts" style="display:none">0</i>
+    </div>
+    <div class="tab" data-page="moments">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg>
+      <span>朋友圈</span>
+    </div>
+    <div class="tab" data-page="me">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><circle cx="12" cy="8" r="4.2"/><path d="M4 20c0-3.9 3.6-6 8-6s8 2.1 8 6v1H4v-1z"/></svg>
+      <span>我的</span>
+    </div>
+  </nav>
+
+  <div id="sheetRoot"></div>
+  <div id="toast" style="display:none"></div>
+
+  <!-- 屏幕共享用的隐藏视频与画布 -->
+  <video id="screenVideo" muted autoplay playsinline style="display:none"></video>
+  <canvas id="grabCanvas" style="display:none"></canvas>
+  <canvas id="hashCanvas" style="display:none"></canvas>
+</div>
+<script src="app.js?v=36"></script>
+<script src="custom.js?v=36"></script>
+<script src="moments.js?v=36"></script>
+<script src="phone.js?v=36"></script>
+</body>
+</html>
