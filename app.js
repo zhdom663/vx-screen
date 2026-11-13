@@ -87,7 +87,6 @@ function seedDB() {
     /* v5 扩展：小手机体验（锁屏/皮肤/备注/拉黑/卡片） */
     lock: { enabled: true, password: '12345' },
     skin: 'pink',           // pink / green / white / imessage
-    chatBg: '',            // 自定义聊天背景 URL
     remarks: {},           // charId -> 备注名
     blocked: [],           // 拉黑的角色
     lastCard: {}            // charId -> 上次发卡片的时间戳
@@ -143,7 +142,6 @@ function load() {
   // v5 小手机体验字段（phone.js 的 migrate 也会兜底）
   if (!db.lock || typeof db.lock !== 'object') db.lock = { enabled: true, password: '12345' };
   if (!db.skin) db.skin = 'pink';
-  if (typeof db.chatBg !== 'string') db.chatBg = '';
   if (!db.remarks || typeof db.remarks !== 'object') db.remarks = {};
   if (!Array.isArray(db.blocked)) db.blocked = [];
   if (!db.lastCard || typeof db.lastCard !== 'object') db.lastCard = {};
@@ -1614,6 +1612,31 @@ function previewImg(src) {
     <button class="wiz-btn ghost" data-act="close-sheet">关闭</button></div>`);
 }
 
+/* ---------------- 微信右上角 + 下拉菜单 ---------------- */
+function openPlusPop() {
+  closePlusPop();
+  const pop = document.createElement('div');
+  pop.id = 'plusPop';
+  pop.className = 'plus-pop';
+  pop.innerHTML = `
+    <button data-act="pp-custom"><i>🎭</i>定制专属陪伴<span>免费试用</span></button>
+    <button data-act="pp-moment"><i>📷</i>发朋友圈</button>
+    <button data-act="pp-friends"><i>👋</i>新的朋友</button>`;
+  document.getElementById('phone').appendChild(pop);
+  setTimeout(() => document.addEventListener('click', plusPopOutside, true), 0);
+}
+function plusPopOutside(e) {
+  const pop = document.getElementById('plusPop');
+  if (!pop) { document.removeEventListener('click', plusPopOutside, true); return; }
+  if (pop.contains(e.target)) return;   // 点菜单项走 data-act handler
+  pop.remove();
+  document.removeEventListener('click', plusPopOutside, true);
+}
+function closePlusPop() {
+  document.getElementById('plusPop')?.remove();
+  document.removeEventListener('click', plusPopOutside, true);
+}
+
 /* ---------------- 全局事件 ---------------- */
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
@@ -1625,10 +1648,13 @@ document.addEventListener('click', e => {
     case 'open-chat': closeSheet(); openChat(el.dataset.id); break;
     case 'cr-back': currentChat = null; showPage('chats'); break;
     case 'chats-add': {
-      if (window.VXCustom && VXCustom.openCustomForm) { VXCustom.openCustomForm(); }
-      else { toast('去「我的」页面添加新朋友吧'); }
+      /* 微信右上角 + 弹出菜单（含误删后补回的「定制专属陪伴」入口） */
+      openPlusPop();
       break;
     }
+    case 'pp-custom': closePlusPop(); if (window.VXCustom && VXCustom.openCustomShop) VXCustom.openCustomShop(); break;
+    case 'pp-moment': closePlusPop(); showPage('moments'); break;
+    case 'pp-friends': closePlusPop(); if (window.VXMoments && VXMoments.renderFreqPage) VXMoments.renderFreqPage(); break;
     case 'send-text': sendText(); break;
     case 'cr-plus': {
       /* 输入文字后 + 变绿色发送键（微信同款） */

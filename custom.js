@@ -49,11 +49,13 @@
       r.onload = () => {
         const im = new Image();
         im.onload = () => {
+          /* 只缩小不放大、不裁剪：保持原图比例，上传多大就多大 */
+          const scale = Math.min(1, max / Math.max(im.width, im.height));
+          const w = Math.max(1, Math.round(im.width * scale));
+          const h = Math.max(1, Math.round(im.height * scale));
           const c = document.createElement('canvas');
-          const s = Math.min(max, im.width, im.height);
-          c.width = c.height = s;
-          const ctx = c.getContext('2d');
-          ctx.drawImage(im, (im.width - s) / 2, (im.height - s) / 2, s, s, 0, 0, s, s);
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(im, 0, 0, w, h);
           resolve(c.toDataURL('image/jpeg', 0.82));
         };
         im.onerror = () => resolve('');
@@ -308,6 +310,7 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
 6. 回复用口语短句，像真人发微信，一条不超过40字；可以连续发2-3条消息，每条换行。
 7. 回答要宽泛自然，不要编造没聊过的具体细节。例如让吃点蛋糕，就说"吃点甜的吧"，不指定什么口味；没确认的信息不要自己补全。
 8. ${mode === 'voice' ? '这条是语音消息，内容是口语化的短句。' : '每次回复要和之前说过的说法有变化，不要重复同样的话。'}
+9. 绝不编造人设里没有的设定：人设没提到的职业、店铺、住址、经历、朋友、爱好等，一概不要主动声称或提及（例如人设没写你开书店，就不能说自己有书店）。人设没写的事就用模糊表达，或直接说不知道。
 【现在开始，你就是${esc(c.name)}，只输出消息本身，不加任何前缀。】`;
   }
 
@@ -492,7 +495,7 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
     if (m.from === 'me') {
       if (m.type === 'voice') {
         return `<div class="me-row"><div class="me-col"><div class="bubble me voice-bubble" data-voice="${m.id}">
-          <span class="vc-ic">🎙</span><span class="vc-dur">${m.dur || 1}″</span></div>${time}</div>${myAv}</div>`;
+          <span class="vc-dur">${m.dur || 1}″</span></div>${time}</div>${myAv}</div>`;
       }
       if (m.type === 'redpack') {
         return `<div class="me-row"><div class="me-col"><div class="bubble me rp-bubble" data-rp="${m.id}">
@@ -506,7 +509,7 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
       const av = `<img class="bubble-avatar" src="${customAvatar(c)}">`;
       if (m.type === 'voice') {
         return `<div class="bubble-row">${av}<div><div class="bubble them voice-bubble" data-voice="${m.id}">
-          <span class="vc-ic">🔊</span><span class="vc-dur">${m.dur || 1}″</span><span class="vc-wave">▂▃▅▃▂</span></div>${time}</div></div>`;
+          <span class="vc-dur">${m.dur || 1}″</span><span class="vc-wave">▂▃▅▃▂</span></div>${time}</div></div>`;
       }
       if (m.type === 'redpack') {
         return `<div class="bubble-row">${av}<div><div class="bubble them rp-bubble" data-rp="${m.id}">
@@ -623,9 +626,22 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
   }
 
   function showCustomTyping(customId, on) {
-    const el = document.getElementById('ccTyping');
-    if (!el) return;
-    el.style.display = VXCustom.current === customId && on ? 'flex' : 'none';
+    /* 「对方正在输入」渲染在消息流末尾：正常大小头像+气泡，和普通消息同一位置 */
+    const list = document.getElementById('ccMessages');
+    if (!list || VXCustom.current !== customId) return;
+    let row = document.getElementById('ccTypingRow');
+    if (on) {
+      if (row) row.remove();
+      const c = getCustom(customId); if (!c) return;
+      row = document.createElement('div');
+      row.id = 'ccTypingRow';
+      row.className = 'bubble-row';
+      row.innerHTML = `<img class="bubble-avatar" src="${customAvatar(c)}"><div><div class="bubble them typing-bubble"><span class="tdot"></span><span class="tdot"></span><span class="tdot"></span></div></div>`;
+      list.appendChild(row);
+      list.scrollTop = list.scrollHeight;
+    } else if (row) {
+      row.remove();
+    }
   }
 
   /* ---------------- 红包 ---------------- */
@@ -1293,7 +1309,7 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
     current: null,
     mountChatList, mountMe, unreadTotal, svgLetter,
     openCustomChat, renderCustomChat, pushCustomMsg, openCustomForm, makeReply,
-    openEmojiPanel, bindChatInputs, updatePlusBtn,
+    openEmojiPanel, bindChatInputs, updatePlusBtn, openCustomShop,
     get customSystemPrompt() { return customSystemPrompt; },
     get customLLM() { return customLLM; }
   };

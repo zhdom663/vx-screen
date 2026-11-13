@@ -378,11 +378,6 @@ window.VXPhone = (function () {
         </div>
         <div class="wiz-label">聊天皮肤</div>
         <div class="skin-grid">${skinBtns}</div>
-        <div class="wiz-label">聊天背景图（URL，iMessage 风最搭）</div>
-        <div style="display:flex;gap:8px">
-          <input class="wiz-input" id="bgInput" value="${esc(db.chatBg || '')}" placeholder="https://…（留空恢复默认）">
-          <button class="wiz-btn" style="margin:0;width:84px;flex:0 0 84px" data-act="save-chatbg">设置</button>
-        </div>
         <button class="wiz-btn blue" data-act="menu-call" style="margin-top:18px">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align:-3px;margin-right:6px"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z"/></svg>呼叫 TA（FaceTime）
         </button>
@@ -412,23 +407,15 @@ window.VXPhone = (function () {
     $$('.skin-opt').forEach(b => b.classList.toggle('on', b.dataset.v === k));
     toast('皮肤已切换：' + (SKINS.find(s => s[0] === k) || [])[1]);
   }
-  function saveChatBg() {
-    const v = $('#bgInput').value.trim();
-    db.chatBg = v;
-    save();
-    applySkin();
-    toast(v ? '聊天背景已设置' : '已恢复默认背景');
-  }
   function applySkin() {
     const cls = ['skin-green', 'skin-white', 'skin-imessage'];
     ['#chatroom', '#customChat'].forEach(sel => {
       const el = $(sel); if (!el) return;
       el.classList.remove(...cls);
       if (db.skin && db.skin !== 'pink') el.classList.add('skin-' + db.skin);
+      const sc = el.querySelector('.chat-scroll');
+      if (sc) sc.style.backgroundImage = '';
     });
-    const bg = db.chatBg || '';
-    const cr = $('#crScroll'); if (cr) cr.style.backgroundImage = bg ? `url("${bg}")` : '';
-    const cc = $('#ccMessages'); if (cc) cc.style.backgroundImage = bg ? `url("${bg}")` : '';
   }
   async function toggleBlock() {
     if (!menuCharId) return;
@@ -539,7 +526,6 @@ window.VXPhone = (function () {
       case 'cc-chat-menu': if (window.VXCustom && VXCustom.current) openChatMenu(VXCustom.current); break;
       case 'save-remark': saveRemark(); break;
       case 'set-skin': setSkin(el.dataset.v); break;
-      case 'save-chatbg': saveChatBg(); break;
       case 'menu-call': if (menuCharId) { closeSheet(); startUnifiedCall(menuCharId); } break;
       case 'menu-block': toggleBlock(); break;
       case 'menu-delfriend': {
@@ -629,7 +615,7 @@ window.VXPhone = (function () {
     if (typeof db.lock.enabled !== 'boolean') db.lock.enabled = true;
     if (!db.lock.password) db.lock.password = '12345';
     if (!db.skin) db.skin = 'pink';
-    if (typeof db.chatBg !== 'string') db.chatBg = '';
+    if (typeof db.skin !== 'string') db.skin = 'pink';
     if (!db.remarks || typeof db.remarks !== 'object') db.remarks = {};
     if (!Array.isArray(db.blocked)) db.blocked = [];
     save();

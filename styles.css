@@ -41,6 +41,17 @@ body{ display:flex; align-items:center; justify-content:center; overflow:hidden;
 button{ border:none; background:none; font-family:inherit; cursor:pointer; color:inherit; }
 input,textarea,select{ font-family:inherit; outline:none; border:none; }
 img{ display:block; }
+/* 微信右上角 + 下拉菜单 */
+.plus-pop{ position:absolute; top:88px; right:10px; background:#2c2c2e; border-radius:10px; padding:4px 0; z-index:90; box-shadow:0 6px 24px rgba(0,0,0,.45); min-width:190px; }
+.plus-pop button{ display:flex; align-items:center; gap:10px; width:100%; padding:12px 16px; background:none; border:none; color:#fff; font-size:14px; text-align:left; cursor:pointer; }
+.plus-pop button:active{ background:rgba(255,255,255,.1); }
+.plus-pop i{ font-style:normal; font-size:16px; }
+.plus-pop span{ margin-left:auto; color:#8a8a8e; font-size:11px; }
+.plus-pop::before{ content:''; position:absolute; top:-5px; right:20px; border:5px solid transparent; border-bottom-color:#2c2c2e; border-top:none; }
+body.light .plus-pop{ background:#fff; box-shadow:0 6px 24px rgba(0,0,0,.18); }
+body.light .plus-pop button{ color:#111; }
+body.light .plus-pop span{ color:#999; }
+body.light .plus-pop::before{ border-bottom-color:#fff; }
 
 .phone{ position:relative; width:100%; max-width:430px; height:100%; max-height:932px; background:var(--bg); display:flex; flex-direction:column; overflow:hidden; }
 @media (min-width:480px){
@@ -136,6 +147,12 @@ img{ display:block; }
 .sys-check{ color:var(--green); font-style:normal; font-weight:700; }
 .time-msg{ text-align:center; font-size:11px; color:var(--muted); margin:14px 0 8px; }
 .typing-bar{ display:flex; align-items:center; gap:8px; padding:0 12px 8px; }
+/* 消息流内「对方正在输入」气泡（正常头像大小，和普通消息同一位置） */
+.typing-bubble{ display:flex; align-items:center; gap:5px; }
+.typing-bubble .tdot{ width:7px; height:7px; border-radius:50%; background:#8e8e93; animation:td 1.2s infinite; display:inline-block; }
+.typing-bubble .tdot:nth-child(2){ animation-delay:.2s }
+.typing-bubble .tdot:nth-child(3){ animation-delay:.4s }
+@keyframes td{ 0%,60%,100%{ opacity:.3; transform:translateY(0);} 30%{ opacity:1; transform:translateY(-3px);} }
 .typing-avatar{ width:32px; height:32px; border-radius:7px; }
 .typing-dots{ background:var(--card-2); border-radius:16px; padding:10px 14px; display:flex; gap:4px; }
 .typing-dots i{ width:6px; height:6px; border-radius:50%; background:#666; animation:td 1.2s infinite; }
@@ -277,7 +294,9 @@ body.light .m-replyto{ color:#576b95; }
 .form-row input, .form-row select, .form-row textarea{ flex:1; border:1px solid #3a3a3c; background:var(--card-2); border-radius:8px; padding:8px 10px; font-size:14px; outline:none; font-family:inherit; color:#fff; }
 .form-row textarea{ resize:none; }
 .avatar-upload{ width:60px; height:60px; border-radius:50%; overflow:hidden; background:#333; position:relative; cursor:pointer; }
-.avatar-upload img{ width:100%; height:100%; object-fit:cover; }
+.avatar-upload img{ width:100%; height:100%; object-fit:contain; background:#3a3a3c; }
+/* 朋友圈封面：长方形上传框，图片完整显示不放大 */
+.avatar-upload.cover-upload{ width:100%; height:110px; border-radius:10px; }
 .avatar-upload span{ position:absolute; bottom:0; left:0; right:0; background:rgba(0,0,0,.5); color:#fff; font-size:10px; text-align:center; padding:2px 0; }
 .video-upload{ flex:1; border:1px dashed #444; border-radius:8px; padding:12px; text-align:center; font-size:13px; color:var(--sub); cursor:pointer; }
 

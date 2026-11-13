@@ -32,30 +32,32 @@
     save();
   }
 
-  /* ---------------- 定制角色按人设发圈（低频 · 符合人设 · 图求精不求多） ---------------- */
-  const MOMENT_GAP = 8 * 3600 * 1000;   // 同一角色两次发圈至少间隔 8 小时
+  /* ---------------- 定制角色按人设发圈（低频 · 符合人设 · 纯文字） ---------------- */
+  /* 每个角色有固定发圈节奏：半天~两天一条，随机生成后记住 */
+  function momentGapOf(c) {
+    if (!c.momentGap) c.momentGap = 12 + Math.random() * 36;   // 12~48 小时
+    return c.momentGap * 3600 * 1000;
+  }
   function maybeCharMoments() {
     const acc = db.customs.filter(c => c.friendStatus === 'accepted');
-    const c = acc.find(c => (!c.lastMomentTs || Date.now() - c.lastMomentTs > MOMENT_GAP) && Math.random() < 0.5);
+    const c = acc.find(c => (!c.lastMomentTs || Date.now() - c.lastMomentTs > momentGapOf(c)) && Math.random() < 0.35);
     if (c) genCharMoment(c);
   }
   async function genCharMoment(c) {
-    c.lastMomentTs = Date.now(); save();   // 先占位防重入
+    c.lastMomentTs = Date.now(); c.momentGap = 0; save();   // 占位防重入，发完重置节奏
     try {
       const sys = `你是${esc(c.name)}，一个真实存在的人，正在发微信朋友圈。
 【你的性格】${c.persona.personality}
 【你和用户的关系】${c.persona.relation}
 【完整人设（最高优先级，绝不OOC）】${(c.persona.background || '你们关系亲近。').slice(0, 2000)}
 【说话风格】${c.persona.style || '口语短句'}
-【铁律】1. 内容必须是这个身份的人会发的真实日常/心情/吐槽/分享，绝不能出现AI腔、客服腔、鸡汤味。2. 语言风格、口头禅、关注点必须严格贴合人设（如温柔的人发温柔的话、学生发学习日常、游戏迷发游戏动态）。3. 不知道的事不编造，不@任何人，不写图片描述。
+【铁律】1. 内容必须是这个身份的人会发的真实日常/心情/吐槽/分享，绝不能出现AI腔、客服腔、鸡汤味。2. 语言风格、口头禅、关注点必须严格贴合人设。3. 人设里没提到的设定（职业/店铺/经历/爱好等）绝不编造。4. 不@任何人，纯文字不发图。5. 先按人设判断：如果你这个性格的人本来就不爱发朋友圈（高冷、低调、话少、懒得分享），只输出[SKIP]，爱分享的人才发。
 以${c.name}的身份发一条朋友圈，口语化，25字以内。只输出正文。`;
       const raw = await callLLM(sys, [{ role: 'user', content: '发一条朋友圈' }], 0.9, 30000);
+      if (/^\[SKIP\]$/i.test(String(raw).trim())) return;   // 这个人不爱发圈
       const text = trimSentence(String(raw).split('\n').map(s => s.trim().replace(/^["「『]|["」』]$/g, '')).filter(Boolean)[0] || '');
       if (!text) return;
-      /* 有图必须清晰有质感，否则干脆纯文字 */
-      const withImg = Math.random() < 0.4;
-      const images = withImg ? [img('candid aesthetic lifestyle photograph, warm cinematic natural lighting, soft film grain, clean minimal composition, rich texture, high detail, high resolution, cozy daily life scene', 'square_hd')] : [];
-      const m = { id: uid(), authorType: 'custom', authorId: c.id, text, images, ts: Date.now(), likes: [], comments: [] };
+      const m = { id: uid(), authorType: 'custom', authorId: c.id, text, images: [], ts: Date.now(), likes: [], comments: [] };
       db.moments.push(m); save();
       if (document.querySelector('.page.active')?.id === 'page-moments') render();
       /* 其他角色按各自人设与关系来评论（雄竞） */
@@ -91,7 +93,7 @@
     const fbAttr = `onerror="this.onerror=()=>{const g=this.closest('.m-imgs');if(g)g.style.display='none';};this.src='https://picsum.photos/seed/vx'+(Math.random()*900|0)+'/600/600';"`;
     const imgs = m.images?.length ? `<div class="m-imgs ${m.images.length===1?'one':''}">${m.images.map(u=>`<img src="${u}" data-fb="1" ${u.startsWith('data:') ? '' : fbAttr}>`).join('')}</div>` : '';
     const likes = m.likes.length ? `<div class="m-likes">❤️ ${m.likes.map(id=>nameOf(id)).join('、')}</div>` : '';
-    const comments = m.comments.map(c => `<div class="m-comment"><b>${esc(c.fromName)}${c.replyTo ? `<i class="m-replyto"> 回复 ${esc(c.replyTo)}</i>` : ''}：</b>${esc(c.text)} <span class="m-act" data-act="reply-comment" data-id="${m.id}" data-name="${esc(c.fromName)}">回复</span></div>`).join('');
+    const comments = m.comments.map(c => `<div class="m-comment" data-act="reply-comment" data-id="${m.id}" data-name="${esc(c.fromName)}"><b>${esc(c.fromName)}${c.replyTo ? `<i class="m-replyto"> 回复 ${esc(c.replyTo)}</i>` : ''}：</b>${esc(c.text)} <span class="m-act">回复</span></div>`).join('');
     const liked = m.likes.includes('me');
     return `<div class="moment">
       <img class="m-avatar" src="${authorAvatar(m)}">
@@ -174,7 +176,7 @@
 【你和用户的关系】${author.persona.relation}
 【完整人设（最高优先级，绝不OOC）】${(author.persona.background || '').slice(0, 1500)}
 【说话风格】${author.persona.style || '口语短句'}
-你发的朋友圈（"${esc(String(m.text).slice(0, 60))}"）下收到用户的评论："${esc(myText)}"。以${author.name}的身份、性格和口吻在评论区回复TA，15字内，口语化，严格贴合人设，不要AI腔。只输出评论文本。`, [], 0.95, 30000);
+你发的朋友圈（"${esc(String(m.text).slice(0, 60))}"）下收到用户的评论："${esc(myText)}"。以${author.name}的身份、性格和口吻在评论区回复TA，15字内，口语化，严格贴合人设，不要AI腔；回复里不要叫TA的名字，直接说想说的话；绝不编造人设里没有的设定；不重复你之前说过的话。只输出回复文本。`, [], 0.95, 30000);
         text = trimSentence(raw);
       } catch (e) { text = ''; }
       if (!text) text = ['哈哈你说得对', '那必须的呀', '你也一起来嘛'][Math.floor(Math.random() * 3)];
@@ -212,9 +214,13 @@
 
     let picked = [];
     if (m.authorType === 'me') {
-      /* 用户发的朋友圈：人人可见；被点名者优先评论，再随机 1-2 个围观 */
-      const rest = candidates.filter(c => !mentionIds.has(c.id)).sort(() => Math.random() - 0.5).slice(0, 2);
-      picked = [...db.customs.filter(c => mentionIds.has(c.id)).map(c => ({ type: 'custom', id: c.id, name: c.name })), ...rest];
+      /* 用户发的朋友圈：列表里所有人（已接受的定制角色）都必须点赞或评论，点名者最优先 */
+      const mentionList = db.customs.filter(c => mentionIds.has(c.id)).map(c => ({ type: 'custom', id: c.id, name: c.name }));
+      const rest = db.customs
+        .filter(c => c.friendStatus === 'accepted' && !mentionIds.has(c.id))
+        .sort(() => Math.random() - 0.5)
+        .map(c => ({ type: 'custom', id: c.id, name: c.name }));
+      picked = [...mentionList, ...rest];
     } else {
       /* 角色发的朋友圈：只允许同一作品世界（人设里互相认识）的角色评论；被点名者除外 */
       const author = db.customs.find(x => x.id === m.authorId);
@@ -227,8 +233,16 @@
       }).sort(() => Math.random() - 0.5).slice(0, 2);
     }
     for (const cand of picked) {
-      await new Promise(r => setTimeout(r, 3000 + Math.random() * 4000));
+      await new Promise(r => setTimeout(r, 3000 + Math.random() * 5000));
       const text = await genCompetitionComment(cand, m, { isMentioned: mentionIds.has(cand.id) });
+      /* [L] = 按人设只会点赞，不评论（高冷/话少的人） */
+      if (text === '[L]') {
+        const mm = db.moments.find(x => x.id === m.id); if (!mm) continue;
+        if (!mm.likes.includes(cand.id)) mm.likes.push(cand.id);
+        save();
+        if (document.getElementById('page-moments')?.classList.contains('active')) render();
+        continue;
+      }
       if (!text) continue;
       m.comments.push({ from: cand.id, fromName: cand.name, text, ts: Date.now() });
       save();
@@ -290,16 +304,31 @@
 【你的性格】${persona}
 【你和用户的关系】${relation}
 【你的完整人设，绝不OOC】${background.slice(0, 2000)}
+【铁律】人设里没提到的设定（职业/店铺/经历/爱好等）绝不编造。
 ${rival ? `【重要】${esc(author)}和你一样，都是用户的恋人，你们互为情敌。评论时可以争风吃醋、暗中较劲、宣示主权（像"这种活动下次该我陪TA去吧"），但语气自然，像熟人之间的较劲，不刻意。\n` : ''}你刷到了${esc(author)}发的朋友圈："${esc(m.text)}"${m.images && m.images.length ? '（配了图）' : ''}。
 ${cognition}请以你的身份写一条朋友圈评论：
 1. 评论必须针对这条朋友圈的正文内容做出具体回应（比如TA说想出去玩，你可以问去哪玩、让他带上你，或表达想一起去）。
-2. 严格符合你的性格和你与用户的关系，不要客服腔、不要AI腔，不要只会说"好看""不错"这种敷衍的话。
-3. 如果你对用户有好感，可以微妙地吃醋、宣示存在感，或和${esc(author)}暗中较劲（雄竞），但要自然不刻意。
-4. 可以自然引用正文里的内容，像熟人刷到动态一样接话。
-${existing ? `5. 下面已有评论，你的评论不要和它们重复或雷同：${existing}\n` : ''}只输出评论文本，25字以内，完整一句话，不加引号前缀。`;
+2. 严格符合你的性格：话少、高冷、低调的人通常只点赞不评论——如果按人设你只会点赞，就只输出[L]。
+3. 不要客服腔、不要AI腔、不要敷衍。可以对用户有好感、微妙吃醋、宣示存在感，但要自然不刻意。
+4. 评论里绝不叫对方的名字，直接说想说的话。
+5. 绝不重复已有评论说过的话，也不重复自己之前说过的话。
+${existing ? `6. 已有评论（绝不重复或雷同）：${existing}\n` : ''}只输出评论文本或[L]，25字以内，完整一句话，不加引号前缀。`;
     try {
       const raw = await callLLM(sys, [], 0.95, 30000);
+      if (/^\[L\]$/i.test(String(raw).trim())) return '[L]';
       const t = trimSentence(raw);
+      /* 防重复：与已有评论相同或高度相似 → 重试一次 → 仍重复走兜底 */
+      const oldList = existing ? existing.split('｜') : [];
+      const isDup = t && oldList.some(e => e === t || (Math.min(e.length, t.length) >= 6 && (e.includes(t) || t.includes(e))));
+      if (isDup) {
+        try {
+          const raw2 = await callLLM(sys + '\n（换个说法，绝不能和已有评论重复或雷同）', [], 0.95, 30000);
+          if (/^\[L\]$/i.test(String(raw2).trim())) return '[L]';
+          const t2 = trimSentence(raw2);
+          if (t2 && !oldList.some(e => e === t2 || (Math.min(e.length, t2.length) >= 6 && (e.includes(t2) || t2.includes(e))))) return t2;
+        } catch (e) { }
+        return pickGenericComment(cand, m);
+      }
       if (t) return t;
     } catch (e) { /* 忽略 */ }
     return pickGenericComment(cand, m);
@@ -428,7 +457,7 @@ ${existing ? `5. 下面已有评论，你的评论不要和它们重复或雷同
       </div>
       <div class="form-row"><label>朋友圈封面</label>
         <div class="avatar-upload cover-upload" data-act="pick-my-cover">
-          <img id="pfCoverImg" src="${pf.cover || svgMe()}" style="width:100%;height:110px;border-radius:10px;object-fit:cover"><span id="pfCoverTxt">${pf.cover ? '点击更换' : '点击上传'}</span>
+          <img id="pfCoverImg" src="${pf.cover || svgMe()}" style="width:100%;height:110px;border-radius:10px;object-fit:contain;background:#3a3a3c"><span id="pfCoverTxt">${pf.cover ? '点击更换' : '点击上传'}</span>
         </div>
         <input type="file" id="pfCoverInput" accept="image/*" hidden>
       </div>
@@ -466,14 +495,16 @@ ${existing ? `5. 下面已有评论，你的评论不要和它们重复或雷同
     db.profile.bio = bio;
     if (pendingCover) { db.profile.cover = pendingCover; pendingCover = ''; }
     if (av && av.startsWith('data:')) {
-      // 压缩头像
+      // 压缩头像：只缩小不放大、不裁剪，保持原图比例
       try {
         const im = new Image();
         im.onload = () => {
+          const scale = Math.min(1, 256 / Math.max(im.width, im.height));
+          const w = Math.max(1, Math.round(im.width * scale));
+          const h = Math.max(1, Math.round(im.height * scale));
           const c = document.createElement('canvas');
-          const s = Math.min(256, im.width, im.height);
-          c.width = c.height = s;
-          c.getContext('2d').drawImage(im, (im.width - s) / 2, (im.height - s) / 2, s, s, 0, 0, s, s);
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(im, 0, 0, w, h);
           db.profile.avatar = c.toDataURL('image/jpeg', 0.82);
           finishProfile();
         };
