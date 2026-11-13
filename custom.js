@@ -427,12 +427,27 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
     const list = document.getElementById('ccMessages');
     list.innerHTML = c.chats.map(m => renderCustomBubble(m, c)).join('');
     list.scrollTop = list.scrollHeight;
-    // 语音播放绑定
+    // 语音播放绑定：我的语音播真实录音（无录音或播放失败才退回 TTS），对方语音走 TTS
     list.querySelectorAll('[data-voice]').forEach(el => {
-      el.onclick = () => {
+      el.onclick = async () => {
         const id = el.dataset.voice;
         const m = c.chats.find(x => x.id === id);
-        if (m) speak(m.text, c.gender);
+        if (!m) return;
+        el.style.opacity = '0.55';
+        setTimeout(() => { el.style.opacity = ''; }, 800);
+        if (m.from === 'me' && m.audio) {
+          try {
+            const blob = await getBlob(m.audio);
+            if (blob && blob.size) {
+              const url = URL.createObjectURL(blob);
+              const a = new Audio(url);
+              await a.play().catch(() => { throw new Error('play-blocked'); });
+              a.onended = () => URL.revokeObjectURL(url);
+              return;
+            }
+          } catch (e) { /* 落到 TTS */ }
+        }
+        speak(m.text, c.gender);
       };
     });
     // 红包点击
@@ -522,9 +537,9 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
     await customReply(c, text, 'text');
   }
 
-  async function sendCustomVoice(customId, text, dur) {
+  async function sendCustomVoice(customId, text, dur, audioKey) {
     const c = getCustom(customId); if (!c) return;
-    pushCustomMsg(customId, { from: 'me', type: 'voice', text, dur });
+    pushCustomMsg(customId, { from: 'me', type: 'voice', text, dur, audio: audioKey });
     // 用户发语音，强制角色进入语音连发模式
     c.voiceStreak = 3;
     await customReply(c, text, 'voice');
@@ -656,23 +671,30 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
       }
     } catch (e) { /* 忽略 */ }
   }
-  /* 用提取的音色素材随机片段当角色"说话声"（视频素材只取音轨）；无素材返回 false 走 TTS */
-  function playVoiceSegment() {
+  /* 用提取的音色素材随机片段当角色"说话声"（视频素材只取音轨）；素材播不出来自动退 TTS */
+  function playVoiceSegment(fallbackText, gender) {
     if (!callVoiceUrl) return false;
     try {
       const a = new Audio(callVoiceUrl);
       callSegAudio = a;
+      let started = false;
       const startAt = () => {
         try {
           const max = Math.max(0, (a.duration || 4) - 1.5);
           a.currentTime = Math.random() * max;
-          a.play().catch(() => { });
+          a.play().then(() => { started = true; }).catch(() => { });
           clearTimeout(callSegTimer);
           callSegTimer = setTimeout(() => { try { a.pause(); } catch (e) { } }, 2000 + Math.random() * 1600);
         } catch (e) { }
       };
       if (a.duration) startAt(); else a.addEventListener('loadedmetadata', startAt, { once: true });
       a.load();
+      /* 2.5 秒后检查是否真的出声：没出声（自动播放被拒/素材加载失败）就退回系统 TTS */
+      setTimeout(() => {
+        if (!started && (a.currentTime || 0) < 0.05 && typeof fallbackText === 'string') {
+          speak(fallbackText, gender);
+        }
+      }, 2500);
       return true;
     } catch (e) { return false; }
   }
@@ -759,8 +781,8 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
     const text = (lines && lines[0]) || '嗯，我在听～';
     callASRBusy = true;                 // 播报期间暂停收音，防止自激
     try { speechSynthesis.cancel(); } catch (e) { }   // 清空旧队列，防止 TTS 堵死无声
-    /* 优先用提取的音色素材随机片段发声（视频素材只出声音）；无素材才用系统 TTS */
-    const segOk = playVoiceSegment();
+    /* 优先用提取的音色素材随机片段发声（视频素材只出声音）；无素材或播不出声才用系统 TTS */
+    const segOk = playVoiceSegment(text, c.gender);
     if (!segOk) speak(text, c.gender, () => {
       callASRBusy = false;
       if (callPendingText) { const t = callPendingText; callPendingText = ''; setTimeout(() => customCallReply(c, t, false), 300); }
@@ -797,7 +819,6 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
   }
 
   /* ---------------- 用户录音 ---------------- */
-  let mediaRecorder = null, audioChunks = [];
   /* 录音不可用时的兜底：弹层输入文字，按语音消息发送（保证「我的语音」始终可用） */
   function voiceFallback(customId) {
     const inWx = /MicroMessenger/i.test(navigator.userAgent);   // 微信内置浏览器禁用麦克风接口
@@ -810,46 +831,142 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
       <button class="wx-primary" data-act="vf-send" data-id="${customId}">按语音发送</button>`);
     setTimeout(() => document.getElementById('vfText')?.focus(), 60);
   }
-  /* ---------------- 用户录音 ---------------- */
+  /* ---------------- 用户录音（微信式按住说话） ---------------- */
   /* 竞态修复：松手太快时 getUserMedia 可能还没就绪，用 stopRequested 让录音流就绪后立刻停止发送 */
+  let mediaRecorder = null, audioChunks = [];
   let recStopRequested = false, recStartTs = 0;
+  let recUI = null, recCancelMode = false, recTouchY0 = 0, recSecTimer = 0, recRafId = 0, recAnalyser = null, recStream = null;
+  let recAsrText = '', recAsrRec = null;
+
+  /* 录音中实时跑一次语音识别拿文字（给角色当上下文用；拿不到就占位，不影响录音本体） */
+  function startLiveAsr() {
+    recAsrText = ''; recAsrRec = null;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    try {
+      const r = new SR();
+      r.lang = 'zh-CN'; r.continuous = true; r.interimResults = true;
+      r.onresult = e => {
+        let t = '';
+        for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript || '';
+        recAsrText = t.trim();
+      };
+      r.onerror = () => { };
+      recAsrRec = r;
+      r.start();
+    } catch (e) { recAsrRec = null; }
+  }
+  function stopLiveAsr() {
+    try { recAsrRec && recAsrRec.stop(); } catch (e) { }
+    recAsrRec = null;
+  }
+
+  /* 微信式录音提示层：按住即弹层显示波形/秒数/上滑取消 */
+  function buildRecUI() {
+    if (recUI) return recUI;
+    const ov = document.createElement('div');
+    ov.id = 'recOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.4);pointer-events:none;opacity:0;transition:opacity .15s';
+    ov.innerHTML = `<div id="recPanel" style="width:220px;padding:24px 0 18px;border-radius:14px;background:rgba(37,37,37,.96);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#fff;transition:background .15s">
+      <div id="recWave" style="display:flex;gap:4px;align-items:center;height:46px">${Array.from({ length: 12 }, () => '<i style="display:block;width:5px;border-radius:3px;background:#7cd858;height:10px"></i>').join('')}</div>
+      <div id="recHint" style="font-size:14px">松开 发送</div>
+      <div id="recSec" style="font-size:12px;color:#9a9a9a">0″ / 60″</div>
+      <div style="font-size:11px;color:#8a8a8a">手指上滑 取消</div>
+    </div>`;
+    document.body.appendChild(ov);
+    recUI = ov;
+    return ov;
+  }
+  function showRecUI(show) {
+    const ov = buildRecUI();
+    ov.style.opacity = show ? '1' : '0';
+    if (!show) cancelAnimationFrame(recRafId);
+  }
+  function setRecCancel(cancel) {
+    recCancelMode = cancel;
+    const panel = recUI && recUI.querySelector('#recPanel');
+    const hint = recUI && recUI.querySelector('#recHint');
+    if (panel) panel.style.background = cancel ? 'rgba(220,40,40,.96)' : 'rgba(37,37,37,.96)';
+    if (hint) hint.textContent = cancel ? '松开手指 取消发送' : '松开 发送';
+  }
+  function recWaveTick() {
+    if (!recUI || !mediaRecorder) return;
+    let v = 0;
+    try {
+      if (recAnalyser) {
+        const arr = new Uint8Array(recAnalyser.fftSize);
+        recAnalyser.getByteTimeDomainData(arr);
+        let sum = 0; for (let i = 0; i < arr.length; i += 4) sum += Math.abs(arr[i] - 128);
+        v = Math.min(1, (sum / (arr.length / 4)) / 40);
+      }
+    } catch (e) { }
+    recUI.querySelectorAll('#recWave i').forEach(b => {
+      b.style.height = Math.max(6, (10 + v * 34) * (0.5 + Math.random() * 0.8)) + 'px';
+    });
+    recRafId = requestAnimationFrame(recWaveTick);
+  }
+
   async function startRecord(customId) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
       toast('当前打开方式不支持录音（本地预览/非安全环境），走文字转语音', 2200);
       return voiceFallback(customId);
     }
-    recStopRequested = false; recStartTs = Date.now();
+    recStopRequested = false; recCancelMode = false; recStartTs = Date.now();
+    showRecUI(true);
+    recWaveTick();
+    startLiveAsr();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recStream = stream;
+      /* 音量波形（真实麦克风采样） */
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AC();
+        const an = ctx.createAnalyser(); an.fftSize = 256;
+        ctx.createMediaStreamSource(stream).connect(an);
+        window._recCtx = ctx;
+        recAnalyser = an;
+      } catch (e) { recAnalyser = null; }
       const mime = (typeof MediaRecorder.isTypeSupported === 'function' && MediaRecorder.isTypeSupported('audio/webm')) ? 'audio/webm' : '';
       mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
       audioChunks = [];
       mediaRecorder.ondataavailable = e => { if (e.data && e.data.size) audioChunks.push(e.data); };
       mediaRecorder.onstop = async () => {
+        clearInterval(recSecTimer);
+        cancelAnimationFrame(recRafId);
+        try { window._recCtx && window._recCtx.close(); } catch (e) { }
+        window._recCtx = null;
         const dur = Math.max(1, Math.round((Date.now() - recStartTs) / 1000));
         const type = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
         const blob = new Blob(audioChunks, { type });
-        mediaRecorder = null;
-        if (Date.now() - recStartTs < 600) {   // 误触：不到 0.6 秒不发送
-          toast('说话时间太短，长按录音', 1600);
-        } else {
-          const key = 'aud_' + uid();
-          await putBlob(key, blob);
-          // 尝试 ASR
-          let text = await asr().catch(() => '');
-          if (!text) text = '（语音消息）';   // ASR 不可用不再弹 prompt，直接发占位语音
-          sendCustomVoice(customId, text, dur);
-        }
-        stream.getTracks().forEach(t => t.stop());
+        const cancelled = recCancelMode;
+        const liveText = recAsrText;
+        mediaRecorder = null; recAnalyser = null;
+        showRecUI(false); setRecCancel(false);
+        stopLiveAsr();
+        if (recStream) { recStream.getTracks().forEach(t => t.stop()); recStream = null; }
+        if (cancelled) return;                                    // 上滑取消：整段丢弃
+        if (Date.now() - recStartTs < 600) { toast('说话时间太短', 1500); return; }
+        if (!blob.size) { toast('没有录到声音，重试一次', 1800); return; }
+        const key = 'aud_' + uid();
+        try { await putBlob(key, blob); } catch (e) { toast('录音存储失败，请重试', 1800); return; }
+        sendCustomVoice(customId, liveText || `（${dur}秒语音）`, dur, key);   // 文字仅作上下文，播放走真实录音
       };
-      mediaRecorder.start();
-      const rbtn = document.getElementById('ccRecordBtn');
-      if (rbtn) rbtn.innerHTML = '<span style="font-size:11px;color:var(--pink)">松开 发送</span>';
+      mediaRecorder.onerror = () => { toast('录音中断，已保留已录部分', 1800); };
+      mediaRecorder.start(1000);   // 每秒分片收集：异常中断也保留已录内容，长语音不丢
+      const st0 = Date.now();
+      recSecTimer = setInterval(() => {
+        const s = Math.floor((Date.now() - st0) / 1000);
+        const sec = recUI && recUI.querySelector('#recSec');
+        if (sec) sec.textContent = s + '″ / 60″';
+        if (s >= 60) stopRecord();                                 // 微信同款 60 秒自动发送
+      }, 250);
       if (recStopRequested) {   // 启动期间用户已松手：立刻停止并发送
         try { mediaRecorder.stop(); } catch (e) { }
       }
     } catch (e) {
-      mediaRecorder = null;
+      mediaRecorder = null; recAnalyser = null; recStream = null;
+      showRecUI(false); setRecCancel(false); stopLiveAsr();
       /* 按真实失败原因给指引，不再一律说"权限未开启" */
       const nm = e && e.name;
       if (nm === 'NotAllowedError' || nm === 'SecurityError') {
@@ -865,10 +982,9 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
     }
   }
   function stopRecord() {
+    clearInterval(recSecTimer);
     if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
     else recStopRequested = true;   // 还在启动 getUserMedia：就绪后自动停止
-    const btn = document.getElementById('ccRecordBtn');
-    if (btn) btn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
   }
 
   function asr() {
@@ -1061,17 +1177,23 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
   const origOpen = openSheet;
   window.openSheet = (html) => { origOpen(html); setTimeout(bindForm, 0); };
 
-  // 录音按钮 + 图片输入绑定（手指滑出按钮再松手也能正常停止发送）
+  // 录音按钮绑定（微信同款：按住说话、上滑取消、松手发送；手指滑出按钮也照常处理）
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('ccRecordBtn');
     if (btn) {
-      btn.addEventListener('touchstart', e => { e.preventDefault(); startRecord(VXCustom.current); }, { passive: false });
+      btn.addEventListener('touchstart', e => { e.preventDefault(); recTouchY0 = (e.touches[0] || {}).clientY || 0; startRecord(VXCustom.current); }, { passive: false });
+      btn.addEventListener('touchmove', e => {
+        if (mediaRecorder) {
+          const y = (e.touches[0] || {}).clientY;
+          if (typeof y === 'number') setRecCancel(y < recTouchY0 - 60);   // 上滑 60px 进取消模式
+        }
+      }, { passive: false });
       btn.addEventListener('touchcancel', () => stopRecord());
-      btn.addEventListener('mousedown', () => startRecord(VXCustom.current));
-      btn.addEventListener('mouseup', stopRecord);
+      btn.addEventListener('mousedown', () => { recTouchY0 = 0; startRecord(VXCustom.current); });
+      btn.addEventListener('mouseup', () => stopRecord());
       btn.addEventListener('mouseleave', () => { if (mediaRecorder && mediaRecorder.state === 'recording') stopRecord(); });
     }
-    // 手指滑出按钮后松手：全局监听一次，录音中即停止发送
+    // 手指滑出按钮后松手：全局兜底，录音中即停止发送/取消
     document.addEventListener('touchend', () => {
       if (mediaRecorder && mediaRecorder.state === 'recording') stopRecord();
     }, { passive: false });
