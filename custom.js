@@ -284,6 +284,11 @@
     renderChats();
   }
 
+  /* 备注名优先：聊天列表/聊天室标题统一走这里（微信同款） */
+  function customDisplayName(c) {
+    return (db.remarks && db.remarks[c.id]) || c.name || '';
+  }
+
   /* ---------------- OOC 防护：定制角色 system prompt ---------------- */
   function customSystemPrompt(c, mode = 'chat') {
     const p = c.persona;
@@ -325,7 +330,7 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
 
   async function customLLM(c, userText, history = [], mode = 'chat') {
     const msgs = [];
-    history.slice(-8).forEach(h => msgs.push({ role: h.from === 'me' ? 'user' : 'assistant', content: h.text }));
+    history.slice(-20).forEach(h => msgs.push({ role: h.from === 'me' ? 'user' : 'assistant', content: h.text }));
     if (userText) msgs.push({ role: 'user', content: userText });
     const bubbles = await llmBubbles(customSystemPrompt(c, mode), msgs);
     if (!bubbles) return null;
@@ -333,15 +338,15 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
     return bubbles.map(b => b.replace(/<[^>]+>/g, '').trim()).filter(Boolean);
   }
 
-  /* ---------------- 对方主动打招呼（严格按人设生成） ---------------- */
+  /* ---------------- 对方主动打招呼（严格按人设生成，直接有事说事） ---------------- */
   async function customGreet(c) {
     let lines = null;
     try {
       lines = await customLLM(c,
-        '（系统设定：你们刚刚通过好友验证，这是你加好友后主动发来的第一条消息。必须完全用你的人设身份、性格、说话风格和口头禅来打招呼，发2-3条口语短消息，绝对不能跳出人设，不能有任何AI腔）',
+        '（系统设定：你们刚互加好友，这是你主动发来的第一条消息。注意：绝不许说"刚加上你""终于加到你""谢谢你通过"这类客套话，也不许提加好友这件事本身。像已经很熟的熟人一样，直接按你的人设开启一个具体话题：可以是问TA在干嘛、分享你手头正做的事、或者顺着你和TA的关系与背景直接开聊。发2条口语短消息，严格人设，无AI腔）',
         [], 'text');
     } catch (e) { lines = null; }
-    if (!lines || !lines.length) lines = ['嗨，终于加上你了', '最近在忙什么呀'];
+    if (!lines || !lines.length) lines = ['在干嘛呢', '我刚忙完，你那边呢'];
     lines.forEach((t, i) => setTimeout(() => pushCustomMsg(c.id, { from: 'them', type: 'text', text: t }), i * 900));
   }
 
@@ -381,7 +386,7 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
     const el = document.getElementById('customChat');
     el.classList.add('active');
     el.style.display = 'flex';
-    el.querySelector('.cc-name').textContent = c.name;
+    el.querySelector('.cc-name').textContent = customDisplayName(c);
     el.querySelector('.cc-avatar').src = customAvatar(c);
     document.getElementById('tabbar').style.display = 'none';   // 聊天时隐藏底部 tab（微信同款）
     bindChatInputs();
@@ -533,7 +538,7 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
       return;
     }
     showCustomTyping(c.id, true);
-    const history = c.chats.slice(-12);
+    const history = c.chats.slice(-20);
     /* 语音模式：用户发语音后连发语音；平时也有约三成概率发语音（微信真人感） */
     const mode = forceMode || (c.voiceStreak > 0 ? (Math.random() < 0.8 ? 'voice' : 'text') : (Math.random() < 0.3 ? 'voice' : 'text'));
     await new Promise(r => setTimeout(r, 600 + Math.random() * 700));
@@ -677,7 +682,7 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
     /* 每次通话静音/免提按钮复位（默认听筒模式视觉） */
     document.querySelectorAll('#callPage .cc-btn').forEach(b => b.classList.remove('on'));
     const el = document.getElementById('callPage');
-    el.querySelector('.call-name').textContent = c.name;
+    el.querySelector('.call-name').textContent = customDisplayName(c);
     el.querySelector('.call-avatar').src = customAvatar(c);
     const vEl = el.querySelector('.call-video');
     const blob = await safeGetBlob(c.voiceId);
@@ -703,47 +708,67 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
   }
 
   /* 通话中持续听用户说话：识别到语音直接转给角色回复 */
-  let callASR = null, callASRon = false, callASRBusy = false;
+  let callASR = null, callASRon = false, callASRBusy = false, callPendingText = '', callASRErrTip = false;
   function startCallASR(c) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;   // 浏览器不支持时可用页面下方文字框通话
+    if (!SR) { toast('当前浏览器不支持连续语音识别，可在通话页下方文字框输入', 3000); return; }
     try {
       const r = new SR();
       r.lang = 'zh-CN'; r.continuous = true; r.interimResults = false;
       r.onresult = e => {
-        if (callASRBusy) return;   // 对方 TTS 播报中不听，防止自激
         const last = e.results[e.results.length - 1];
-        const text = last[0].transcript.trim();
-        if (text) customCallReply(c, text, false);
+        const text = (last[0].transcript || '').trim();
+        if (!text) return;
+        if (callASRBusy) { callPendingText = text; return; }   // 对方说话时先记下，播完再答
+        customCallReply(c, text, false);
       };
-      r.onerror = () => { };
+      r.onerror = e => {
+        const err = e && e.error;
+        if ((err === 'not-allowed' || err === 'service-not-allowed') && !callASRErrTip) {
+          callASRErrTip = true;
+          toast('麦克风权限被拒：点地址栏锁图标 → 网站设置 → 允许麦克风后刷新重试', 4000);
+          callASRon = false;   // 不再无限重启
+        } else if (err === 'network' && !callASRErrTip) {
+          callASRErrTip = true;
+          toast('语音识别服务连接失败，请检查网络后重新拨打', 3000);
+          callASRon = false;
+        }
+        /* no-speech / aborted 等静默，靠 onend 自动重启 */
+      };
       r.onend = () => { if (callASRon) { try { r.start(); } catch (e) { } } };
-      callASR = r; callASRon = true;
+      callASR = r; callASRon = true; callPendingText = ''; callASRErrTip = false;
       r.start();
     } catch (e) { callASR = null; }
   }
   function stopCallASR() {
     callASRon = false;
     try { callASR && callASR.stop(); } catch (e) { }
-    callASR = null;
+    callASR = null; callPendingText = '';
   }
 
   async function customCallReply(c, userText, isFirst) {
     const el = document.getElementById('callPage');
     if (!el.classList.contains('active')) return;
     await new Promise(r => setTimeout(r, 500));
-    const history = c.chats.slice(-6).map(m => ({ from: m.from, text: m.text }));
+    const history = c.chats.slice(-16).map(m => ({ from: m.from, text: m.text }));
     const prompt = isFirst
       ? `（你接起了电话，用你的性格跟用户打招呼，可以寒暄几句，口语化，20字内）`
-      : `用户说：${userText}。请用你的性格回复，口语化，20字内。`;
+      : `用户在电话里说：${userText}。请用你的性格接话回复，口语化，20字内。`;
     let lines = null;
     try { lines = await customLLM(c, prompt, history, 'voice'); } catch (e) { lines = null; }
     const text = (lines && lines[0]) || '嗯，我在听～';
     callASRBusy = true;                 // 播报期间暂停收音，防止自激
+    try { speechSynthesis.cancel(); } catch (e) { }   // 清空旧队列，防止 TTS 堵死无声
     /* 优先用提取的音色素材随机片段发声（视频素材只出声音）；无素材才用系统 TTS */
     const segOk = playVoiceSegment();
-    if (!segOk) speak(text, c.gender, () => { callASRBusy = false; });
-    else callSegTimer2 = setTimeout(() => { callASRBusy = false; }, 2800 + Math.random() * 1200);
+    if (!segOk) speak(text, c.gender, () => {
+      callASRBusy = false;
+      if (callPendingText) { const t = callPendingText; callPendingText = ''; setTimeout(() => customCallReply(c, t, false), 300); }
+    });
+    else callSegTimer2 = setTimeout(() => {
+      callASRBusy = false;
+      if (callPendingText) { const t = callPendingText; callPendingText = ''; setTimeout(() => customCallReply(c, t, false), 300); }
+    }, 2800 + Math.random() * 1200);
     // 通话记录文字版（不写入聊天，只记录）
     VXCustom._callLog = VXCustom._callLog || [];
     VXCustom._callLog.push({ from: 'them', text });
@@ -785,31 +810,46 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
       <button class="wx-primary" data-act="vf-send" data-id="${customId}">按语音发送</button>`);
     setTimeout(() => document.getElementById('vfText')?.focus(), 60);
   }
+  /* ---------------- 用户录音 ---------------- */
+  /* 竞态修复：松手太快时 getUserMedia 可能还没就绪，用 stopRequested 让录音流就绪后立刻停止发送 */
+  let recStopRequested = false, recStartTs = 0;
   async function startRecord(customId) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
       toast('当前打开方式不支持录音（本地预览/非安全环境），走文字转语音', 2200);
       return voiceFallback(customId);
     }
+    recStopRequested = false; recStartTs = Date.now();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorder = new MediaRecorder(stream);
+      const mime = (typeof MediaRecorder.isTypeSupported === 'function' && MediaRecorder.isTypeSupported('audio/webm')) ? 'audio/webm' : '';
+      mediaRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
       audioChunks = [];
-      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.ondataavailable = e => { if (e.data && e.data.size) audioChunks.push(e.data); };
       mediaRecorder.onstop = async () => {
-        const blob = new Blob(audioChunks, { type: 'audio/webm' });
-        const key = 'aud_' + uid();
-        await putBlob(key, blob);
-        const dur = Math.max(1, Math.round(audioChunks.length * 0.1));
-        // 尝试 ASR
-        let text = await asr().catch(() => '');
-        if (!text) text = '（语音消息）';   // ASR 不可用不再弹 prompt，直接发占位语音
-        sendCustomVoice(customId, text, dur);
+        const dur = Math.max(1, Math.round((Date.now() - recStartTs) / 1000));
+        const type = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
+        const blob = new Blob(audioChunks, { type });
+        mediaRecorder = null;
+        if (Date.now() - recStartTs < 600) {   // 误触：不到 0.6 秒不发送
+          toast('说话时间太短，长按录音', 1600);
+        } else {
+          const key = 'aud_' + uid();
+          await putBlob(key, blob);
+          // 尝试 ASR
+          let text = await asr().catch(() => '');
+          if (!text) text = '（语音消息）';   // ASR 不可用不再弹 prompt，直接发占位语音
+          sendCustomVoice(customId, text, dur);
+        }
         stream.getTracks().forEach(t => t.stop());
       };
       mediaRecorder.start();
       const rbtn = document.getElementById('ccRecordBtn');
       if (rbtn) rbtn.innerHTML = '<span style="font-size:11px;color:var(--pink)">松开 发送</span>';
+      if (recStopRequested) {   // 启动期间用户已松手：立刻停止并发送
+        try { mediaRecorder.stop(); } catch (e) { }
+      }
     } catch (e) {
+      mediaRecorder = null;
       /* 按真实失败原因给指引，不再一律说"权限未开启" */
       const nm = e && e.name;
       if (nm === 'NotAllowedError' || nm === 'SecurityError') {
@@ -826,6 +866,7 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
   }
   function stopRecord() {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+    else recStopRequested = true;   // 还在启动 getUserMedia：就绪后自动停止
     const btn = document.getElementById('ccRecordBtn');
     if (btn) btn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
   }
@@ -858,7 +899,7 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
       row.innerHTML = `
         <img class="chat-av" src="${customAvatar(c)}">
         <div class="chat-main">
-          <div class="chat-name">${esc(c.name)}</div>
+          <div class="chat-name">${esc(customDisplayName(c))}</div>
           <div class="chat-preview">${last ? (last.type === 'voice' ? '[语音]' : last.type === 'img' ? '[图片]' : last.type === 'redpack' ? '[红包]' : last.text) : '来聊聊吧'}</div>
         </div>
         <div class="chat-time">${last ? fmtHM(last.ts) : ''}</div>
@@ -1020,16 +1061,20 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
   const origOpen = openSheet;
   window.openSheet = (html) => { origOpen(html); setTimeout(bindForm, 0); };
 
-  // 录音按钮 + 图片输入绑定
+  // 录音按钮 + 图片输入绑定（手指滑出按钮再松手也能正常停止发送）
   document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('ccRecordBtn');
     if (btn) {
-      btn.addEventListener('touchstart', e => { e.preventDefault(); startRecord(VXCustom.current); });
-      btn.addEventListener('touchend', e => { e.preventDefault(); stopRecord(); });
+      btn.addEventListener('touchstart', e => { e.preventDefault(); startRecord(VXCustom.current); }, { passive: false });
+      btn.addEventListener('touchcancel', () => stopRecord());
       btn.addEventListener('mousedown', () => startRecord(VXCustom.current));
       btn.addEventListener('mouseup', stopRecord);
       btn.addEventListener('mouseleave', () => { if (mediaRecorder && mediaRecorder.state === 'recording') stopRecord(); });
     }
+    // 手指滑出按钮后松手：全局监听一次，录音中即停止发送
+    document.addEventListener('touchend', () => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') stopRecord();
+    }, { passive: false });
     const imgInp = document.getElementById('ccImgInput');
     if (imgInp) imgInp.onchange = async e => {
       const f = e.target.files[0]; if (!f) return;

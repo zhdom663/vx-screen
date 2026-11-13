@@ -1429,10 +1429,10 @@ function renderMe() {
   const s = db.settings;
   const pf = db.profile || {};
   const ident = curIdent();
-  const name = ident.name || pf.name || '我';
+  const name = (pf.name && pf.name !== '我') ? pf.name : (ident.name || '我');
   const wcid = ident.wcid || 'wx_me';
-  const avatar = ident.avatar || pf.avatar || svgMe();
-  const sign = db.globalPersona ? db.globalPersona.slice(0, 28) : '这个人很懒，什么都没留下～';
+  const avatar = pf.avatar || ident.avatar || svgMe();
+  const sign = pf.bio || (db.globalPersona ? db.globalPersona.slice(0, 28) : '这个人很懒，什么都没留下～');
   const bal = (db.wallet?.balance || 0).toFixed(2);
   $('#meWrap').innerHTML = `
     <div class="me-header">

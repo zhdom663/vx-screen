@@ -42,7 +42,13 @@
   async function genCharMoment(c) {
     c.lastMomentTs = Date.now(); save();   // 先占位防重入
     try {
-      const sys = `你是${esc(c.name)}，性格：${c.persona.personality}，和用户关系：${c.persona.relation}。以${c.name}的身份发一条朋友圈，内容必须符合该人设的真实日常或心情，口语化，25字以内，不要@任何人，不要图片描述。只输出正文。`;
+      const sys = `你是${esc(c.name)}，一个真实存在的人，正在发微信朋友圈。
+【你的性格】${c.persona.personality}
+【你和用户的关系】${c.persona.relation}
+【完整人设（最高优先级，绝不OOC）】${(c.persona.background || '你们关系亲近。').slice(0, 2000)}
+【说话风格】${c.persona.style || '口语短句'}
+【铁律】1. 内容必须是这个身份的人会发的真实日常/心情/吐槽/分享，绝不能出现AI腔、客服腔、鸡汤味。2. 语言风格、口头禅、关注点必须严格贴合人设（如温柔的人发温柔的话、学生发学习日常、游戏迷发游戏动态）。3. 不知道的事不编造，不@任何人，不写图片描述。
+以${c.name}的身份发一条朋友圈，口语化，25字以内。只输出正文。`;
       const raw = await callLLM(sys, [{ role: 'user', content: '发一条朋友圈' }], 0.9, 30000);
       const text = trimSentence(String(raw).split('\n').map(s => s.trim().replace(/^["「『]|["」』]$/g, '')).filter(Boolean)[0] || '');
       if (!text) return;
@@ -163,7 +169,12 @@
       const mm = db.moments.find(x => x.id === m.id); if (!mm) return;
       let text = '';
       try {
-        const raw = await callLLM(`你是${esc(author.name)}，性格：${author.persona.personality}，和用户关系：${author.persona.relation}。你发的朋友圈（"${esc(String(m.text).slice(0, 60))}"）下收到用户的评论："${esc(myText)}"。以你的身份在评论区回复TA，15字内，口语化，符合你的性格。只输出评论文本。`, [], 0.95, 30000);
+        const raw = await callLLM(`你是${esc(author.name)}，一个真实存在的人。
+【你的性格】${author.persona.personality}
+【你和用户的关系】${author.persona.relation}
+【完整人设（最高优先级，绝不OOC）】${(author.persona.background || '').slice(0, 1500)}
+【说话风格】${author.persona.style || '口语短句'}
+你发的朋友圈（"${esc(String(m.text).slice(0, 60))}"）下收到用户的评论："${esc(myText)}"。以${author.name}的身份、性格和口吻在评论区回复TA，15字内，口语化，严格贴合人设，不要AI腔。只输出评论文本。`, [], 0.95, 30000);
         text = trimSentence(raw);
       } catch (e) { text = ''; }
       if (!text) text = ['哈哈你说得对', '那必须的呀', '你也一起来嘛'][Math.floor(Math.random() * 3)];
@@ -412,9 +423,12 @@ ${existing ? `5. 下面已有评论，你的评论不要和它们重复或雷同
       <div class="form-row"><label>昵称</label>
         <input id="pfName" value="${esc(pf.name || '')}" maxlength="12">
       </div>
+      <div class="form-row"><label>个签</label>
+        <input id="pfBio" value="${esc(pf.bio || '')}" placeholder="写一句个性签名，会显示在「我的」页面" maxlength="30">
+      </div>
       <div class="form-row"><label>朋友圈封面</label>
-        <div class="avatar-upload" data-act="pick-my-cover">
-          <img id="pfCoverImg" src="${pf.cover || svgMe()}" style="object-fit:cover"><span id="pfCoverTxt">${pf.cover ? '点击更换' : '点击上传'}</span>
+        <div class="avatar-upload cover-upload" data-act="pick-my-cover">
+          <img id="pfCoverImg" src="${pf.cover || svgMe()}" style="width:100%;height:110px;border-radius:10px;object-fit:cover"><span id="pfCoverTxt">${pf.cover ? '点击更换' : '点击上传'}</span>
         </div>
         <input type="file" id="pfCoverInput" accept="image/*" hidden>
       </div>
@@ -447,7 +461,9 @@ ${existing ? `5. 下面已有评论，你的评论不要和它们重复或雷同
   function saveProfile() {
     const av = document.getElementById('pfAvatar').src;
     const name = document.getElementById('pfName').value.trim() || '我';
+    const bio = document.getElementById('pfBio').value.trim();
     db.profile.name = name;
+    db.profile.bio = bio;
     if (pendingCover) { db.profile.cover = pendingCover; pendingCover = ''; }
     if (av && av.startsWith('data:')) {
       // 压缩头像
