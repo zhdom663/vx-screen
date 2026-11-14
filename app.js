@@ -1619,9 +1619,7 @@ function openPlusPop() {
   pop.id = 'plusPop';
   pop.className = 'plus-pop';
   pop.innerHTML = `
-    <button data-act="pp-custom"><i>🎭</i>定制专属陪伴<span>免费试用</span></button>
-    <button data-act="pp-moment"><i>📷</i>发朋友圈</button>
-    <button data-act="pp-friends"><i>👋</i>新的朋友</button>`;
+    <button data-act="pp-custom"><i>🎭</i>定制专属陪伴<span>免费试用</span></button>`;
   document.getElementById('phone').appendChild(pop);
   setTimeout(() => document.addEventListener('click', plusPopOutside, true), 0);
 }
@@ -1653,8 +1651,6 @@ document.addEventListener('click', e => {
       break;
     }
     case 'pp-custom': closePlusPop(); if (window.VXCustom && VXCustom.openCustomShop) VXCustom.openCustomShop(); break;
-    case 'pp-moment': closePlusPop(); showPage('moments'); break;
-    case 'pp-friends': closePlusPop(); if (window.VXMoments && VXMoments.renderFreqPage) VXMoments.renderFreqPage(); break;
     case 'send-text': sendText(); break;
     case 'cr-plus': {
       /* 输入文字后 + 变绿色发送键（微信同款） */

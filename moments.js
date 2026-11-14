@@ -52,7 +52,7 @@
 【完整人设（最高优先级，绝不OOC）】${(c.persona.background || '你们关系亲近。').slice(0, 2000)}
 【说话风格】${c.persona.style || '口语短句'}
 【铁律】1. 内容必须是这个身份的人会发的真实日常/心情/吐槽/分享，绝不能出现AI腔、客服腔、鸡汤味。2. 语言风格、口头禅、关注点必须严格贴合人设。3. 人设里没提到的设定（职业/店铺/经历/爱好等）绝不编造。4. 不@任何人，纯文字不发图。5. 先按人设判断：如果你这个性格的人本来就不爱发朋友圈（高冷、低调、话少、懒得分享），只输出[SKIP]，爱分享的人才发。
-以${c.name}的身份发一条朋友圈，口语化，25字以内。只输出正文。`;
+以${c.name}的身份发一条朋友圈，口语化，字数随意：几个字到一两句话都行，怎么自然怎么来。只输出正文。`;
       const raw = await callLLM(sys, [{ role: 'user', content: '发一条朋友圈' }], 0.9, 30000);
       if (/^\[SKIP\]$/i.test(String(raw).trim())) return;   // 这个人不爱发圈
       const text = trimSentence(String(raw).split('\n').map(s => s.trim().replace(/^["「『]|["」』]$/g, '')).filter(Boolean)[0] || '');
@@ -288,6 +288,15 @@
       if (a) authorLove = lovey.test(a.persona.relation) || lovey.test(String(a.persona.background || '').slice(0, 500));
     }
     const rival = candLove && authorLove;
+    /* 作者人设：评论者按双方人设里的称呼/关系/故事来回应（爱人、同事、陌生人各不相同） */
+    let authorDesc = '';
+    if (m.authorType === 'custom') {
+      const a = db.customs.find(x => x.id === m.authorId);
+      if (a && worldsMatch(candWorld, charWorld(a))) {
+        authorDesc = `【作者${esc(author)}】和你同一个世界、你们认识。TA的人设：${a.persona.personality}；${String(a.persona.background || '').slice(0, 500)}
+你们怎么称呼彼此、什么关系、有什么故事，以你人设里的描述为准。如果人设里你们是恋人/爱人：你和TA最亲密，其次才是用户，回应要像最熟的人一样自然，可以很短很日常（比如TA说通宵加班，你只说"知道了"或点个赞）。\n`;
+      }
+    }
     const existing = m.comments.slice(-4).map(c => c.text).filter(Boolean).join('｜');
     /* 当事人：这条朋友圈正文点名了评论者本人（如"叶瑄是混蛋"→叶瑄必须回应） */
     const isMentioned = !!opts.isMentioned;
@@ -305,14 +314,14 @@
 【你和用户的关系】${relation}
 【你的完整人设，绝不OOC】${background.slice(0, 2000)}
 【铁律】人设里没提到的设定（职业/店铺/经历/爱好等）绝不编造。
-${rival ? `【重要】${esc(author)}和你一样，都是用户的恋人，你们互为情敌。评论时可以争风吃醋、暗中较劲、宣示主权（像"这种活动下次该我陪TA去吧"），但语气自然，像熟人之间的较劲，不刻意。\n` : ''}你刷到了${esc(author)}发的朋友圈："${esc(m.text)}"${m.images && m.images.length ? '（配了图）' : ''}。
+${rival ? `【重要】${esc(author)}和你一样，都是用户的恋人。但你俩不要激烈冲突：最多有一点吃醋、又不敢声张，点到为止（比如小小嘀咕一句、装作不在意、回个吃瓜/微笑之类的表情），绝不吵架、绝不宣示主权、绝不撕破脸。\n` : ''}${authorDesc}你刷到了${esc(author)}发的朋友圈："${esc(m.text)}"${m.images && m.images.length ? '（配了图）' : ''}。
 ${cognition}请以你的身份写一条朋友圈评论：
 1. 评论必须针对这条朋友圈的正文内容做出具体回应（比如TA说想出去玩，你可以问去哪玩、让他带上你，或表达想一起去）。
 2. 严格符合你的性格：话少、高冷、低调的人通常只点赞不评论——如果按人设你只会点赞，就只输出[L]。
 3. 不要客服腔、不要AI腔、不要敷衍。可以对用户有好感、微妙吃醋、宣示存在感，但要自然不刻意。
 4. 评论里绝不叫对方的名字，直接说想说的话。
 5. 绝不重复已有评论说过的话，也不重复自己之前说过的话。
-${existing ? `6. 已有评论（绝不重复或雷同）：${existing}\n` : ''}只输出评论文本或[L]，25字以内，完整一句话，不加引号前缀。`;
+${existing ? `6. 已有评论（绝不重复或雷同）：${existing}\n` : ''}只输出评论文本或[L]，不加引号前缀。字数随意：可以两三个字、一句话，也可以只发一个表情/emoji，怎么自然怎么来。`;
     try {
       const raw = await callLLM(sys, [], 0.95, 30000);
       if (/^\[L\]$/i.test(String(raw).trim())) return '[L]';
@@ -546,7 +555,7 @@ ${existing ? `6. 已有评论（绝不重复或雷同）：${existing}\n` : ''}�
       case 'pick-my-avatar': document.getElementById('pfAvatarInput')?.click(); break;
       case 'pick-my-cover': document.getElementById('pfCoverInput')?.click(); break;
       case 'save-profile': saveProfile(); break;
-      case 'reply-comment': replyComment(id, el.dataset.name || ''); break;
+      case 'reply-comment': replyComment(id, t.dataset.name || ''); break;
     }
   });
 

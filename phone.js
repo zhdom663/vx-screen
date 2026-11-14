@@ -369,21 +369,20 @@ window.VXPhone = (function () {
     const skinBtns = SKINS.map(([k, label]) =>
       `<button class="skin-opt ${db.skin === k ? 'on' : ''}" data-act="set-skin" data-v="${k}">
         <i class="skin-dot ${k}"></i>${label}</button>`).join('');
-    openSheet(`<div class="sheet-head"><b>${esc(displayNameOf(ch))} · 聊天设置</b><button data-act="close-sheet">关闭</button></div>
-      <div class="sheet-body">
-        <div class="wiz-label">备注名</div>
-        <div style="display:flex;gap:8px">
-          <input class="wiz-input" id="remarkInput" value="${esc(remark)}" placeholder="给TA起个备注（如：小熊先生[^]_[^]）">
-          <button class="wiz-btn" style="margin:0;width:84px;flex:0 0 84px" data-act="save-remark">保存</button>
-        </div>
-        <div class="wiz-label">聊天皮肤</div>
-        <div class="skin-grid">${skinBtns}</div>
-        <button class="wiz-btn blue" data-act="menu-call" style="margin-top:18px">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align:-3px;margin-right:6px"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z"/></svg>呼叫 TA（FaceTime）
-        </button>
-        <button class="wiz-btn ${blocked ? '' : 'ghost'}" data-act="menu-block" style="margin-top:10px">${blocked ? '解除拉黑（TA 会察觉）' : '拉黑 TA（TA 将无法给你发消息）'}</button>
-        <button class="wiz-btn ghost" data-act="menu-delfriend" style="margin-top:10px">删除好友</button>
-      </div>`);
+    /* 微信同款：聊天设置开全屏子页，不再是底部弹层 */
+    window.VX.openSubPage(`聊天设置`, `
+      <div class="wiz-label">备注名</div>
+      <div style="display:flex;gap:8px">
+        <input class="wiz-input" id="remarkInput" value="${esc(remark)}" placeholder="给TA起个备注（如：小熊先生[^]_[^]）">
+        <button class="wiz-btn" style="margin:0;width:84px;flex:0 0 84px" data-act="save-remark">保存</button>
+      </div>
+      <div class="wiz-label">聊天皮肤</div>
+      <div class="skin-grid">${skinBtns}</div>
+      <button class="wiz-btn blue" data-act="menu-call" style="margin-top:18px">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align:-3px;margin-right:6px"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z"/></svg>呼叫 TA（FaceTime）
+      </button>
+      <button class="wiz-btn ${blocked ? '' : 'ghost'}" data-act="menu-block" style="margin-top:10px">${blocked ? '解除拉黑（TA 会察觉）' : '拉黑 TA（TA 将无法给你发消息）'}</button>
+      <button class="wiz-btn ghost" data-act="menu-delfriend" style="margin-top:10px">删除好友</button>`);
   }
   function saveRemark() {
     if (!menuCharId) return;
@@ -398,7 +397,7 @@ window.VXPhone = (function () {
       const nm = v || ch.name;
       const el = $('#crName'); if (el && currentChat === menuCharId) el.textContent = nm;
     }
-    closeSheet();
+    if (window.VX && VX.closeSubPage) VX.closeSubPage();
   }
   function setSkin(k) {
     db.skin = k;
@@ -421,7 +420,7 @@ window.VXPhone = (function () {
     if (!menuCharId) return;
     const id = menuCharId;
     const ch = anyChar(id); if (!ch) return;
-    closeSheet();
+    if (window.VX && VX.closeSubPage) VX.closeSubPage();
     if (isBlockedLocal(id)) {
       /* 解除拉黑：角色立刻察觉并质问 */
       db.blocked = db.blocked.filter(x => x !== id);
@@ -526,7 +525,7 @@ window.VXPhone = (function () {
       case 'cc-chat-menu': if (window.VXCustom && VXCustom.current) openChatMenu(VXCustom.current); break;
       case 'save-remark': saveRemark(); break;
       case 'set-skin': setSkin(el.dataset.v); break;
-      case 'menu-call': if (menuCharId) { closeSheet(); startUnifiedCall(menuCharId); } break;
+      case 'menu-call': if (menuCharId) { if (window.VX && VX.closeSubPage) VX.closeSubPage(); startUnifiedCall(menuCharId); } break;
       case 'menu-block': toggleBlock(); break;
       case 'menu-delfriend': {
         if (!menuCharId) break;
@@ -545,8 +544,15 @@ window.VXPhone = (function () {
         if (!delId) break;
         db.customs = (db.customs || []).filter(c => c.id !== delId);
         db.friendReqs = (db.friendReqs || []).filter(r => r.customId !== delId);
+        /* 同步清理此人朋友圈：TA 发的圈、TA 的点赞和评论一并删除 */
+        db.moments = (db.moments || []).filter(m => !(m.authorType === 'custom' && m.authorId === delId));
+        db.moments.forEach(m => {
+          m.likes = (m.likes || []).filter(x => x !== delId);
+          m.comments = (m.comments || []).filter(c => c.from !== delId);
+        });
         save();
         closeSheet();
+        if (window.VX && VX.closeSubPage) VX.closeSubPage();
         const ccEl = document.getElementById('customChat');
         if (ccEl && ccEl.classList.contains('active')) {
           ccEl.classList.remove('active');

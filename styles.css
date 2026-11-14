@@ -591,7 +591,6 @@ body.light .fb-name{ color:#111; } body.light .fb-text{ color:#555; }
 .call-page .call-num{ font-size:13.5px; color:rgba(255,255,255,.55); margin-top:3px; z-index:2; position:relative; }
 .call-page .call-loc{ font-size:12px; color:rgba(255,255,255,.4); margin-top:2px; z-index:2; position:relative; }
 .call-page .call-speaking{ font-size:14px; color:#a8d4ff; margin-top:16px; min-height:20px; z-index:2; position:relative; text-align:center; padding:0 30px; line-height:1.6; }
-.call-vol-hint{ font-size:11px; color:rgba(255,255,255,.45); margin-top:8px; z-index:2; position:relative; text-align:center; padding:0 30px; }
 .call-controls{ position:absolute; bottom:120px; left:0; right:0; display:grid; grid-template-columns:repeat(3, 72px); gap:18px 0; justify-content:center; z-index:2; }
 .call-controls .cc-btn{ display:flex; flex-direction:column; align-items:center; gap:5px; color:#fff; font-size:11px; }
 .call-controls .cc-btn i, .call-controls .cc-btn svg{ width:64px; height:64px; border-radius:50%; background:rgba(255,255,255,.14); display:flex; align-items:center; justify-content:center; }

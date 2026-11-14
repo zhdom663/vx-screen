@@ -130,24 +130,12 @@
         <input id="cvWorld" placeholder="选填，如：时空中的绘旅人；同作品的角色互相认识" maxlength="24">
       </div>
       <div class="form-row column">
-        <div class="form-row-head">
-          <label>完整人设（最多 3000 字）</label>
-          <span class="gen-link" data-act="search-persona">🔍 搜索人设</span>
-        </div>
-        <textarea id="cvBg" rows="7" maxlength="3000" placeholder="如：温柔细腻、有点占有欲、爱撒娇…再写身份背景、成长经历、口头禅、禁忌、和你的故事，写得越细 TA 越不容易 OOC（可去豆包生成人设）"></textarea>
+        <label>完整人设（最多 3000 字）</label>
+        <textarea id="cvBg" rows="7" maxlength="3000" placeholder="如：温柔细腻、有点占有欲、爱撒娇…再写身份背景、成长经历、口头禅、禁忌、和你的故事，写得越细 TA 越不容易 OOC（可去豆包生成人设）。若列表存在同一作品的人物，请添加此人与对方的称呼、关系与故事"></textarea>
         <div class="char-count"><span id="bgCount">0</span>/3000</div>
       </div>
       <div class="form-row"><label>说话风格</label>
         <input id="cvStyle" placeholder="如：短句、爱用~、偶尔叫你宝宝" maxlength="40">
-      </div>
-      <div class="form-row column">
-        <div class="form-row-head"><label>音色素材（视频/音频）</label></div>
-        <div class="video-upload" data-act="pick-voice">
-          <span id="cvVoiceTxt">点击上传视频或音频，提取 TA 的音色</span>
-        </div>
-        <input type="file" id="cvVoiceInput" accept="video/*,audio/*" hidden>
-        <button class="voice-preview" id="cvVoicePlay" data-act="preview-voice" style="display:none">▶ 试听提取的音色</button>
-        <div class="field-tip">提取的音色用于来电问候和语音消息播放；日常对话由系统按性别音色合成</div>
       </div>
       <button class="wx-primary" data-act="submit-custom">完成定制，让 TA 加你好友</button>
     `);
@@ -183,52 +171,6 @@
     const u = blobUrl(pendingVoiceBlob);
     const a = new Audio(u);
     a.play().catch(() => toast('该格式无法直接试听，已保存不影响使用'));
-  }
-
-  /* ---------------- 搜索人设 ---------------- */
-  /* 搜索人设：输入角色名（如：时空中的绘旅人叶瑄），AI 还原人设并填入 */
-  function searchPersona() {
-    const anchor = document.querySelector('[data-act="submit-custom"]');
-    if (!anchor || document.getElementById('spPanel')) return;
-    const panel = document.createElement('div');
-    panel.id = 'spPanel';
-    panel.style.cssText = 'margin:-4px 0 10px;padding:10px;border:1px solid rgba(127,127,127,.3);border-radius:10px;';
-    panel.innerHTML = `
-      <input id="spName" placeholder="输入角色名，如：时空中的绘旅人叶瑄" maxlength="30" style="width:100%">
-      <button class="wx-primary" data-act="do-search-persona" style="margin-top:8px">🔍 搜索并填入人设</button>
-      <div style="font-size:11px;color:#999;margin-top:6px">AI 会按你输入的角色还原人设，填入上方人设框，约需 1 分钟</div>`;
-    anchor.parentNode.insertBefore(panel, anchor);
-    setTimeout(() => document.getElementById('spName')?.focus(), 50);
-  }
-
-  async function doSearchPersona() {
-    const q = document.getElementById('spName')?.value.trim();
-    if (!q) return toast('请先输入角色名');
-    const bg = document.getElementById('cvBg');
-    if (!bg) return;
-    const btn = document.querySelector('[data-act="do-search-persona"]');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ 搜索中，约1分钟…'; }
-    toast('正在搜索「' + q.slice(0, 10) + '」的人设，可能需要 30~60 秒…', 6000);
-    const sys = `用户想为角色「${q}」做 AI 角色扮演人设。请根据你对这个角色的了解（出自作品、身份、性格、说话风格、经典口头禅、与人的相处方式），还原并扩写成一份完整人设，800~1200字，包含：身份背景、外貌气质、性格层次、口头禅与语言习惯、价值观与禁忌、和用户的关系设定（按亲密关系设计）、主动聊天话题、绝不OOC边界。如果你不认识该角色，就按名字风格合理创作一个贴合的人设。直接输出正文。`;
-    /* 自动重试最多 3 次：长请求在移动网络下偶发超时/限流，重试可大幅提高成功率 */
-    let out = null, lastErr = null;
-    for (let i = 0; i < 3 && !out; i++) {
-      if (i) { toast(`正在重试（第 ${i + 1} 次）…`, 2000); if (btn) btn.textContent = `⏳ 重试中（${i + 1}/3）…`; }
-      try {
-        out = await callLLM(sys, [{ role: 'user', content: '搜索人设：' + q }], 1.0, 90000);
-      } catch (e) { lastErr = e; }
-    }
-    if (out) {
-      bg.value = String(out).slice(0, 3000);
-      const cnt = document.getElementById('bgCount');
-      if (cnt) cnt.textContent = bg.value.length;
-      document.getElementById('spPanel')?.remove();
-      toast('✓ 人设已填入，可继续编辑');
-    } else {
-      const why = lastErr && (lastErr.message === 'no-key' ? '未配置 API Key' : lastErr.name === 'AbortError' ? '响应超时' : lastErr.message || '网络异常');
-      toast('搜索失败：' + why + '，请稍后再试', 3000);
-      if (btn) { btn.disabled = false; btn.textContent = '🔍 搜索并填入人设'; }
-    }
   }
 
   async function submitCustom() {
@@ -294,11 +236,19 @@
   /* ---------------- OOC 防护：定制角色 system prompt ---------------- */
   function customSystemPrompt(c, mode = 'chat') {
     const p = c.persona;
+    /* 同作品角色：人设里互为爱人/熟人的，聊天中可自然提及与对方的日常互动 */
+    let worldLine = '';
+    if (c.world) {
+      const mates = (db.customs || []).filter(x => x.id !== c.id && x.friendStatus === 'accepted' && x.world && String(x.world).trim() === String(c.world).trim());
+      if (mates.length) {
+        worldLine = `\n【你认识的人】${mates.map(m => esc(m.name)).join('、')}和你是同一个世界的人。你们之间的称呼、关系、故事以你人设里的描述为准，绝不装熟也不编造。如果人设里你们是恋人/爱人：你和TA最亲密，其次才是用户，聊天中可以自然提及和TA的日常互动（如TA在加班、你们约好吃饭），语气像最亲近的人。\n`;
+      }
+    }
     return `你是${esc(c.name)}，一个真实存在的人，正在微信上和用户聊天。
 【身份与性格】${p.personality}
 【你和用户的关系】${p.relation}
 【背景与人设（最高优先级，严格遵守，绝不OOC）】
-${(p.background || '你们关系亲近。').slice(0, 3000)}
+${(p.background || '你们关系亲近。').slice(0, 3000)}${worldLine}
 【说话风格】${p.style}
 【说话示例规则】多用日常语气词（啊/呀/嘛/呢/吧/哈/哦/哎），短句为主，可以省略主语，句子不完整也没关系。绝不输出括号动作神态描写（如（温柔地笑）（挑眉）（轻声）），只输出真正要说的话。
 【铁律·绝不 OOC】
@@ -477,6 +427,8 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
     });
   }
 
+  function bubbleText(t) { return esc(String(t == null ? '' : t).replace(/\s+/g, ' ').trim()); }   // 压掉 LLM 尾随/连续空格，气泡多大字就多大
+
   function renderCustomBubble(m, c) {
     const time = m.ts ? `<div class="msg-time">${fmtHM(m.ts)}</div>` : '';
     const myAv = `<img class="bubble-avatar" src="${(db.profile && db.profile.avatar) || svgMe()}">`;
@@ -504,7 +456,7 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
       if (m.type === 'img') {
         return `<div class="me-row"><div class="me-col"><img class="msg-img me-img" src="${m.url}" data-fb="1">${time}</div>${myAv}</div>`;
       }
-      return `<div class="me-row"><div class="me-col"><div class="bubble me">${esc(m.text)}</div>${time}</div>${myAv}</div>`;
+      return `<div class="me-row"><div class="me-col"><div class="bubble me">${bubbleText(m.text)}</div>${time}</div>${myAv}</div>`;
     } else {
       const av = `<img class="bubble-avatar" src="${customAvatar(c)}">`;
       if (m.type === 'voice') {
@@ -516,12 +468,12 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
           <div class="rp-ic">🧧</div><div class="rp-info"><div class="rp-amt">¥${m.amount}</div><div class="rp-msg">${esc(m.remark || '')}</div></div></div>${time}</div></div>`;
       }
       if (m.type === 'call') {
-        return `<div class="bubble-row">${av}<div><div class="bubble them call-bubble">📞 ${esc(m.text)}</div>${time}</div></div>`;
+        return `<div class="bubble-row">${av}<div><div class="bubble them call-bubble">📞 ${bubbleText(m.text)}</div>${time}</div></div>`;
       }
       if (m.type === 'img') {
         return `<div class="bubble-row">${av}<div><img class="msg-img them-img" src="${m.url}" data-fb="1"></div>${time}</div></div>`;
       }
-      return `<div class="bubble-row">${av}<div><div class="bubble them">${esc(m.text)}</div>${time}</div></div>`;
+      return `<div class="bubble-row">${av}<div><div class="bubble them">${bubbleText(m.text)}</div>${time}</div></div>`;
     }
   }
 
@@ -713,32 +665,10 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
       }
     } catch (e) { /* 忽略 */ }
   }
-  /* 用提取的音色素材随机片段当角色"说话声"（视频素材只取音轨）；素材播不出来自动退 TTS */
+  /* 角色说话声：统一由系统按性别音色 TTS（不再使用上传的音色素材） */
   function playVoiceSegment(fallbackText, gender) {
-    if (!callVoiceUrl) return false;
-    try {
-      const a = new Audio(callVoiceUrl);
-      callSegAudio = a;
-      let started = false;
-      const startAt = () => {
-        try {
-          const max = Math.max(0, (a.duration || 4) - 1.5);
-          a.currentTime = Math.random() * max;
-          a.play().then(() => { started = true; }).catch(() => { });
-          clearTimeout(callSegTimer);
-          callSegTimer = setTimeout(() => { try { a.pause(); } catch (e) { } }, 2000 + Math.random() * 1600);
-        } catch (e) { }
-      };
-      if (a.duration) startAt(); else a.addEventListener('loadedmetadata', startAt, { once: true });
-      a.load();
-      /* 2.5 秒后检查是否真的出声：没出声（自动播放被拒/素材加载失败）就退回系统 TTS */
-      setTimeout(() => {
-        if (!started && (a.currentTime || 0) < 0.05 && typeof fallbackText === 'string') {
-          speak(fallbackText, gender);
-        }
-      }, 2500);
-      return true;
-    } catch (e) { return false; }
+    if (typeof fallbackText === 'string' && fallbackText) speak(fallbackText, gender);
+    return true;
   }
   async function startCall(customId) {
     const c = getCustom(customId); if (!c) return;
@@ -1134,8 +1064,6 @@ ${(p.background || '你们关系亲近。').slice(0, 3000)}
       case 'pay-custom': fakePay(); break;
       case 'pick-avatar': document.getElementById('cvAvatarInput')?.click(); break;
       case 'pick-voice': document.getElementById('cvVoiceInput')?.click(); break;
-      case 'search-persona': searchPersona(); break;
-      case 'do-search-persona': doSearchPersona(); break;
       case 'preview-voice': previewVoice(); break;
       case 'submit-custom': submitCustom(); break;
       case 'friend-reqs': openFriendReqs(); break;
